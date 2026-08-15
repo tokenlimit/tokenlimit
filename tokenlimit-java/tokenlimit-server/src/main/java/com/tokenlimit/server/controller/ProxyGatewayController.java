@@ -7,16 +7,15 @@ import com.tokenlimit.common.api.BusinessException;
 import com.tokenlimit.common.api.ErrorCode;
 import com.tokenlimit.common.dto.CheckResult;
 import com.tokenlimit.server.entity.ApiKey;
-import com.tokenlimit.server.enums.LlmProvider;
-import com.tokenlimit.server.config.TokenLimitProperties;
 import com.tokenlimit.server.security.OpenAiResponseWriter;
 import com.tokenlimit.server.security.SecurityUtils;
-import com.tokenlimit.server.service.ConfigCacheService;
 import com.tokenlimit.server.service.ModelPolicyService;
 import com.tokenlimit.server.service.ProviderResolverService;
 import com.tokenlimit.server.service.QuotaService;
 import com.tokenlimit.server.service.TokenEstimationService;
+import com.tokenlimit.server.service.UpstreamProxyService;
 import com.tokenlimit.server.service.redis.RateLimiterService;
+import com.tokenlimit.server.config.TokenLimitProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -28,30 +27,18 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * OpenAI Compatible Proxy 网关（PRD V5.0）.
- * <p>客户端零改造接入：{@code Authorization: Bearer <access_key>:<secret>}。
- * API Key 鉴权（INVALID_API_KEY / API_KEY_DISABLED / API_KEY_EXPIRED）由
- * {@code OpenAiApiKeyAuthenticationFilter} 统一负责，认证通过后从 SecurityContext
- * 获取 {@link ApiKey} 身份与原始凭证。
- * 本 Controller 流程：Team Model Policy 模型策略校验（MODEL_NOT_ALLOWED）
- * → jtokkit 预估 → 配额 check（简单计数器，只读不预扣）
- * → Provider 凭证解析 → 转发上游（流式/非流式透传）
- * → report（厂商 usage 优先，缺失按预估结算；含异常计费检测）。</p>
+ * <p>客户端零改造接入：{@code Authorization: Bearer <access_key>:<secret>}。</p>
+ * <p>API Key 鉴权由 {@code OpenAiApiKeyAuthenticationFilter} 统一负责。</p>
+ * <p>核心流程：模型策略校验 → jtokkit 预估 → 配额 check → Provider 凭证解析 → 转发上游 → 结算。</p>
  */
 @Controller
 @RequestMapping("/v1")
@@ -62,41 +49,36 @@ public class ProxyGatewayController {
     private final QuotaService quotaService;
     private final ProviderResolverService providerResolverService;
     private final TokenEstimationService tokenEstimationService;
-    private final ConfigCacheService configCacheService;
-    private final RateLimiterService rateLimiterService;
     private final ModelPolicyService modelPolicyService;
+    private final UpstreamProxyService upstreamProxyService;
+    private final RateLimiterService rateLimiterService;
     private final TokenLimitProperties properties;
     private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
 
     public ProxyGatewayController(QuotaService quotaService,
                                   ProviderResolverService providerResolverService,
                                   TokenEstimationService tokenEstimationService,
-                                  ConfigCacheService configCacheService,
-                                  RateLimiterService rateLimiterService,
                                   ModelPolicyService modelPolicyService,
+                                  UpstreamProxyService upstreamProxyService,
+                                  RateLimiterService rateLimiterService,
                                   TokenLimitProperties properties,
-                                  ObjectMapper objectMapper,
-                                  HttpClient upstreamHttpClient) {
+                                  ObjectMapper objectMapper) {
         this.quotaService = quotaService;
         this.providerResolverService = providerResolverService;
         this.tokenEstimationService = tokenEstimationService;
-        this.configCacheService = configCacheService;
-        this.rateLimiterService = rateLimiterService;
         this.modelPolicyService = modelPolicyService;
+        this.upstreamProxyService = upstreamProxyService;
+        this.rateLimiterService = rateLimiterService;
         this.properties = properties;
         this.objectMapper = objectMapper;
-        this.httpClient = upstreamHttpClient;
     }
 
     /**
      * 模型列表（OpenAI Compatible GET /v1/models）.
-     * <p>V5：按 API Key 所属 Team 返回可用模型；Team 未启用模型白名单时返回全部已启用模型。</p>
      */
     @GetMapping("/models")
     public void models(HttpServletRequest request, HttpServletResponse response) throws IOException {
         try {
-            // API Key 已由 OpenAiApiKeyAuthenticationFilter 认证并注入 SecurityContext
             ApiKey apiKey = SecurityUtils.currentApiKey();
             if (apiKey == null) {
                 writeOpenAiError(response, ErrorCode.INVALID_API_KEY);
@@ -127,7 +109,6 @@ public class ProxyGatewayController {
 
     /**
      * Chat Completions（OpenAI Compatible POST /v1/chat/completions）.
-     * <p>支持流式（SSE）与非流式；流式优先注入 {@code stream_options.include_usage} 以获取真实 usage。</p>
      */
     @PostMapping("/chat/completions")
     public void chatCompletions(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -143,12 +124,16 @@ public class ProxyGatewayController {
     }
 
     /**
-     * 通用处理（PRD V5.0 数据面流程）.
+     * 通用处理流程.
      */
     private void handleCompletion(HttpServletRequest request, HttpServletResponse response,
                                   String upstreamPath) throws IOException {
-        String body = readBody(request);
-        // 1. API Key 已由 OpenAiApiKeyAuthenticationFilter 认证并注入 SecurityContext（此处不再重复鉴权）
+        long startTime = System.currentTimeMillis();
+        
+        // 1. 读取请求体
+        String body = upstreamProxyService.readBody(request.getInputStream());
+        
+        // 2. 获取认证信息
         ApiKey apiKey = SecurityUtils.currentApiKey();
         String[] credential = SecurityUtils.currentApiKeyCredential();
         if (apiKey == null || credential == null) {
@@ -156,17 +141,17 @@ public class ProxyGatewayController {
             return;
         }
 
-        // 1.5 接口级限流（按 API Key 维度，配置开关控制）
+        // 3. 限流检查
         if (rateLimiterService.isEnabled()) {
             int limit = properties.getRateLimit().getPerKeyQps();
             long windowMillis = properties.getRateLimit().getWindowSeconds() * 1000L;
             if (!rateLimiterService.tryAcquire(apiKey.getKeyId(), limit, windowMillis)) {
-                writeOpenAiError(response, 429, "RATE_LIMIT_EXCEEDED",
-                        "请求过于频繁，请稍后重试");
+                writeOpenAiError(response, 429, "RATE_LIMIT_EXCEEDED", "请求过于频繁，请稍后重试");
                 return;
             }
         }
 
+        // 4. 解析请求
         JsonNode requestJson;
         try {
             requestJson = objectMapper.readTree(body);
@@ -181,7 +166,7 @@ public class ProxyGatewayController {
         }
         boolean stream = requestJson.path("stream").asBoolean(false);
 
-        // 2. Team Model Policy 模型策略校验（MODEL_NOT_ALLOWED）
+        // 5. 模型策略校验
         try {
             modelPolicyService.assertModelAllowed(apiKey.getTeamCode(), model);
         } catch (BusinessException e) {
@@ -189,14 +174,13 @@ public class ProxyGatewayController {
             return;
         }
 
-        // 3. jtokkit 预估（请求发出时估算 prompt_tokens；completion 未知，结算时再补）
+        // 6. Token 预估
         long estPrompt = tokenEstimationService.estimatePromptTokens(model, requestJson);
 
-        // 4. 配额 check：简单计数器，只读 Redis used，不预扣
+        // 7. 配额检查
         CheckResult check;
         try {
-            check = quotaService.check(credential[0], credential[1], model,
-                    estPrompt, 0, estPrompt);
+            check = quotaService.check(credential[0], credential[1], model, estPrompt, 0, estPrompt);
         } catch (BusinessException e) {
             writeOpenAiError(response, e.getCode(), e.getMessage());
             return;
@@ -205,9 +189,10 @@ public class ProxyGatewayController {
             writeDenied(response, check.getReason(), check.getMessage());
             return;
         }
-        final String traceId = check.getTraceId();
+        String traceId = check.getTraceId();
+        log.debug("[{}] 配额检查通过, model={}, estPrompt={}", traceId, model, estPrompt);
 
-        // 5. 解析上游 Provider 凭证（Team 专属 → GLOBAL → PROVIDER_NOT_FOUND）
+        // 8. 解析 Provider 凭证
         ProviderResolverService.ResolvedCredential resolved;
         try {
             resolved = providerResolverService.resolve(apiKey.getTeamCode(), model);
@@ -216,49 +201,43 @@ public class ProxyGatewayController {
             return;
         }
 
-        // 6. 构造上游请求（流式注入 include_usage）
+        // 9. 构建上游请求
         String upstreamBody = body;
-        try {
-            if (stream) {
-                upstreamBody = injectStreamOptions(body);
+        if (stream) {
+            try {
+                upstreamBody = upstreamProxyService.injectStreamOptions(body);
+            } catch (Exception e) {
+                log.warn("[{}] 注入 stream_options 失败，使用原始请求体", traceId, e);
             }
-        } catch (Exception e) {
-            log.warn("注入 stream_options 失败，使用原始请求体", e);
         }
-        String upstreamUrl = buildUpstreamUrl(resolved.getApiBaseUrl(), resolved.getProvider(), upstreamPath);
-        HttpRequest upstreamRequest = HttpRequest.newBuilder()
-                .uri(URI.create(upstreamUrl))
-                .timeout(Duration.ofSeconds(properties.getHttp().getRequestTimeoutSeconds()))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + resolved.getApiKey())
-                .POST(HttpRequest.BodyPublishers.ofString(upstreamBody, StandardCharsets.UTF_8))
-                .build();
+        String upstreamUrl = upstreamProxyService.buildUpstreamUrl(
+                resolved.getApiBaseUrl(), resolved.getProvider(), upstreamPath);
+        HttpRequest upstreamRequest = upstreamProxyService.buildRequest(upstreamUrl, upstreamBody, resolved.getApiKey());
 
-        // 7. 转发上游并结算
-        long start = System.currentTimeMillis();
+        // 10. 转发并处理响应
         try {
-            HttpResponse<InputStream> upstream = httpClient.send(upstreamRequest,
-                    HttpResponse.BodyHandlers.ofInputStream());
-            if (upstream.statusCode() >= 400) {
-                // 上游错误：透传错误体，按预估结算（ESTIMATED / ERROR）
-                String err = readFully(upstream.body());
+            HttpResponse<InputStream> upstreamResponse = upstreamProxyService.send(upstreamRequest);
+            
+            if (upstreamResponse.statusCode() >= 400) {
+                // 上游错误
+                String err = upstreamProxyService.readErrorResponse(upstreamResponse);
                 settle(credential, traceId, model, resolved.getProvider(), 0, 0, 0,
                         "ERROR", estPrompt, 0, estPrompt);
-                writeRaw(response, upstream.statusCode(), upstream.headers().firstValue("Content-Type")
-                                .orElse(MediaType.APPLICATION_JSON_VALUE),
+                writeRaw(response, upstreamResponse.statusCode(),
+                        upstreamResponse.headers().firstValue("Content-Type").orElse(MediaType.APPLICATION_JSON_VALUE),
                         err.isEmpty() ? "{\"error\":\"upstream error\"}" : err);
                 return;
             }
-            long latencyMs = System.currentTimeMillis() - start;
+
             if (stream) {
-                handleStreaming(response, upstream, credential, traceId, model,
-                        resolved.getProvider(), estPrompt, latencyMs);
+                handleStreamResponse(response, upstreamResponse, credential, traceId, model, 
+                        resolved.getProvider(), estPrompt, startTime);
             } else {
-                handleNonStreaming(response, upstream, credential, traceId, model,
-                        resolved.getProvider(), estPrompt, latencyMs);
+                handleNonStreamResponse(response, upstreamResponse, credential, traceId, model,
+                        resolved.getProvider(), estPrompt, startTime);
             }
         } catch (Exception e) {
-            log.error("上游转发失败 traceId={}", traceId, e);
+            log.error("[{}] 上游转发失败", traceId, e);
             settle(credential, traceId, model, resolved.getProvider(), 0, 0, 0,
                     "ERROR", estPrompt, 0, estPrompt);
             if (!response.isCommitted()) {
@@ -268,120 +247,66 @@ public class ProxyGatewayController {
     }
 
     /**
-     * 流式透传：边收边转，从 SSE 中提取 usage 并累计 content 用于中断估算.
+     * 处理流式响应.
      */
-    private void handleStreaming(HttpServletResponse response, HttpResponse<InputStream> upstream,
-                                 String[] credential, String traceId, String model, String provider,
-                                 long estPrompt, long latencyMs) {
-        response.setStatus(HttpServletResponse.SC_OK);
-        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        response.setContentType("text/event-stream");
-        response.setHeader("Cache-Control", "no-cache");
-        response.setHeader("X-Accel-Buffering", "no");
-        AtomicLong promptTokens = new AtomicLong(0);
-        AtomicLong completionTokens = new AtomicLong(0);
-        AtomicLong totalTokens = new AtomicLong(0);
-        AtomicBoolean hasUsage = new AtomicBoolean(false);
-        StringBuilder completionText = new StringBuilder();
-
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(upstream.body(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.startsWith("data:")) {
-                    String data = line.substring(5).trim();
-                    if (!"[DONE]".equals(data) && !data.isEmpty()) {
-                        try {
-                            JsonNode node = objectMapper.readTree(data);
-                            JsonNode usage = node.path("usage");
-                            if (!usage.isMissingNode() && !usage.isNull()) {
-                                captureUsage(usage, promptTokens, completionTokens, totalTokens);
-                                hasUsage.set(true);
-                            }
-                            // 累计 delta.content 用于中断/缺失 usage 时的估算
-                            JsonNode delta = node.path("choices").path(0).path("delta").path("content");
-                            if (delta.isTextual()) {
-                                completionText.append(delta.asText());
-                            }
-                        } catch (Exception ignore) {
-                            // 非 JSON 的 SSE 行直接透传
-                        }
-                    }
-                }
-                writeRawLine(response, line);
-            }
-            response.flushBuffer();
-            // 正常完成：优先真实 usage，缺失时按预估结算（ESTIMATED / SUCCESS）
-            long estCompletion = tokenEstimationService.estimateCompletionTokens(model, completionText.toString());
-            if (hasUsage.get()) {
-                settle(credential, traceId, model, provider, promptTokens.get(),
-                        completionTokens.get(), totalTokens.get(), "SUCCESS",
-                        estPrompt, estCompletion, Math.max(totalTokens.get(), estPrompt));
-            } else {
-                settle(credential, traceId, model, provider, 0, 0, 0, "SUCCESS",
-                        estPrompt, estCompletion, estPrompt + estCompletion);
-            }
-        } catch (IOException e) {
-            log.warn("流式透传中断 traceId={}: {}", traceId, e.getMessage());
-            // 客户端断开：按已转发内容估算结算（ESTIMATED / INTERRUPTED）
-            long estCompletion = tokenEstimationService.estimateCompletionTokens(model, completionText.toString());
+    private void handleStreamResponse(HttpServletResponse response, HttpResponse<InputStream> upstream,
+                                      String[] credential, String traceId, String model, String provider,
+                                      long estPrompt, long startTime) throws IOException {
+        UpstreamProxyService.StreamResult result = upstreamProxyService.handleStreaming(response, upstream, model);
+        
+        long latencyMs = System.currentTimeMillis() - startTime;
+        
+        if (result.isHasUsage()) {
+            // 使用真实 usage
+            settle(credential, traceId, model, provider,
+                    result.getPromptTokens(), result.getCompletionTokens(), result.getTotalTokens(),
+                    "SUCCESS", estPrompt, result.getEstimatedCompletionTokens(),
+                    Math.max(result.getTotalTokens(), estPrompt));
+            log.debug("[{}] 流式完成, latency={}ms, tokens={}", traceId, latencyMs, result.getTotalTokens());
+        } else if (result.isSuccess()) {
+            // 无 usage，使用估算
+            settle(credential, traceId, model, provider, 0, 0, 0, "SUCCESS",
+                    estPrompt, result.getEstimatedCompletionTokens(),
+                    estPrompt + result.getEstimatedCompletionTokens());
+            log.debug("[{}] 流式完成(估算), latency={}ms, estTokens={}", traceId, latencyMs, 
+                    result.getEstimatedCompletionTokens());
+        } else {
+            // 中断
             settle(credential, traceId, model, provider, 0, 0, 0, "INTERRUPTED",
-                    estPrompt, estCompletion, estPrompt + estCompletion);
+                    estPrompt, result.getEstimatedCompletionTokens(),
+                    estPrompt + result.getEstimatedCompletionTokens());
+            log.warn("[{}] 流式中断, latency={}ms, estTokens={}", traceId, latencyMs, 
+                    result.getEstimatedCompletionTokens());
         }
     }
 
     /**
-     * 非流式：完整读取响应并提取 usage 结算.
+     * 处理非流式响应.
      */
-    private void handleNonStreaming(HttpServletResponse response, HttpResponse<InputStream> upstream,
-                                    String[] credential, String traceId, String model, String provider,
-                                    long estPrompt, long latencyMs) {
-        try {
-            String respBody = readFully(upstream.body());
-            long prompt = 0, completion = 0, total = 0;
-            try {
-                JsonNode node = objectMapper.readTree(respBody);
-                JsonNode usage = node.path("usage");
-                if (!usage.isMissingNode() && !usage.isNull()) {
-                    prompt = usage.path("prompt_tokens").asLong(0);
-                    completion = usage.path("completion_tokens").asLong(0);
-                    total = usage.path("total_tokens").asLong(0);
-                }
-            } catch (Exception ignore) {
-            }
-            if (total > 0) {
-                settle(credential, traceId, model, provider, prompt, completion,
-                        total == 0 ? prompt + completion : total, "SUCCESS",
-                        estPrompt, completion, Math.max(total, estPrompt));
-            } else {
-                // 厂商未返回 usage：按预估结算（ESTIMATED / SUCCESS）
-                settle(credential, traceId, model, provider, 0, 0, 0, "SUCCESS",
-                        estPrompt, 0, estPrompt);
-            }
-            writeRaw(response, upstream.statusCode(),
-                    upstream.headers().firstValue("Content-Type").orElse(MediaType.APPLICATION_JSON_VALUE),
-                    respBody);
-        } catch (IOException e) {
-            log.error("非流式读取失败 traceId={}", traceId, e);
-            settle(credential, traceId, model, provider, 0, 0, 0, "ERROR",
+    private void handleNonStreamResponse(HttpServletResponse response, HttpResponse<InputStream> upstream,
+                                         String[] credential, String traceId, String model, String provider,
+                                         long estPrompt, long startTime) throws IOException {
+        UpstreamProxyService.NonStreamResult result = upstreamProxyService.handleNonStreaming(response, upstream);
+        
+        long latencyMs = System.currentTimeMillis() - startTime;
+        
+        if (result.isHasUsage()) {
+            settle(credential, traceId, model, provider,
+                    result.getPromptTokens(), result.getCompletionTokens(), result.getTotalTokens(),
+                    "SUCCESS", estPrompt, result.getCompletionTokens(),
+                    Math.max(result.getTotalTokens(), estPrompt));
+            log.debug("[{}] 非流式完成, latency={}ms, tokens={}", traceId, latencyMs, result.getTotalTokens());
+        } else {
+            settle(credential, traceId, model, provider, 0, 0, 0, "SUCCESS",
                     estPrompt, 0, estPrompt);
-            if (!response.isCommitted()) {
-                writeOpenAiError(response, ErrorCode.PROVIDER_ERROR);
-            }
+            log.debug("[{}] 非流式完成(无usage), latency={}ms", traceId, latencyMs);
         }
-    }
-
-    private void captureUsage(JsonNode usage, AtomicLong prompt, AtomicLong completion, AtomicLong total) {
-        long p = usage.path("prompt_tokens").asLong(0);
-        long c = usage.path("completion_tokens").asLong(0);
-        long t = usage.path("total_tokens").asLong(0);
-        prompt.set(Math.max(prompt.get(), p));
-        completion.set(Math.max(completion.get(), c));
-        total.set(Math.max(total.get(), t == 0 ? p + c : t));
+        
+        writeRaw(response, result.getStatusCode(), result.getContentType(), result.getResponseBody());
     }
 
     /**
-     * 用量上报（report，V5 签名）：携预估 + 真实值，usage_source 与异常检测由 QuotaService 判定.
+     * 用量结算.
      */
     private void settle(String[] credential, String traceId, String model, String provider,
                         long prompt, long completion, long total, String status,
@@ -391,74 +316,12 @@ public class ProxyGatewayController {
                     prompt, completion, total, provider, status, null,
                     estPrompt, estCompletion, estTotal);
         } catch (Exception e) {
-            log.error("用量上报失败 traceId={}", traceId, e);
+            log.error("[{}] 用量上报失败", traceId, e);
         }
-    }
-
-    private String injectStreamOptions(String body) throws IOException {
-        JsonNode root = objectMapper.readTree(body);
-        ((ObjectNode) root).set("stream_options",
-                objectMapper.createObjectNode().put("include_usage", true));
-        return objectMapper.writeValueAsString(root);
-    }
-
-    private String buildUpstreamUrl(String apiBaseUrl, String provider, String path) {
-        if (StringUtils.hasText(apiBaseUrl)) {
-            String base = apiBaseUrl.endsWith("/") ? apiBaseUrl.substring(0, apiBaseUrl.length() - 1) : apiBaseUrl;
-            return base + "/" + path;
-        }
-        // 兜底：未配置上游地址时使用已知厂商枚举的默认地址
-        String base = LlmProvider.defaultBaseUrl(provider);
-        if (base == null) {
-            base = LlmProvider.OPENAI.getDefaultBaseUrl();
-        }
-        return base + "/" + path;
-    }
-
-    private String readBody(HttpServletRequest request) throws IOException {
-        StringBuilder sb = new StringBuilder();
-        try (InputStream in = request.getInputStream()) {
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = in.read(buf)) != -1) {
-                sb.append(new String(buf, 0, n, StandardCharsets.UTF_8));
-            }
-        }
-        return sb.toString();
-    }
-
-    private String readFully(InputStream in) throws IOException {
-        StringBuilder sb = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
-            char[] buf = new char[4096];
-            int n;
-            while ((n = reader.read(buf)) != -1) {
-                sb.append(buf, 0, n);
-            }
-        }
-        return sb.toString();
-    }
-
-    private void writeRawLine(HttpServletResponse response, String line) {
-        try {
-            response.getWriter().write(line);
-            response.getWriter().write("\n");
-            response.getWriter().flush();
-        } catch (IOException e) {
-            // 客户端断开
-        }
-    }
-
-    private void writeRaw(HttpServletResponse response, int status, String contentType, String body)
-            throws IOException {
-        response.setStatus(status);
-        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        response.setContentType(contentType);
-        response.getWriter().write(body);
     }
 
     /**
-     * 配额不足响应（OpenAI Compatible，429/403/400 + 语义化 code）.
+     * 配额不足响应.
      */
     private void writeDenied(HttpServletResponse response, String reason, String message) {
         switch (reason == null ? "" : reason) {
@@ -471,18 +334,22 @@ public class ProxyGatewayController {
         }
     }
 
-    /**
-     * 按业务错误码写出 OpenAI 兼容错误响应（PRD V5.0 6.5 错误码映射，实现见 {@link OpenAiResponseWriter}）.
-     */
-    private void writeOpenAiError(HttpServletResponse response, int businessCode, String message) {
-        OpenAiResponseWriter.writeError(response, objectMapper, businessCode, message);
-    }
-
     private void writeOpenAiError(HttpServletResponse response, ErrorCode errorCode) {
         OpenAiResponseWriter.writeError(response, objectMapper, errorCode);
     }
 
+    private void writeOpenAiError(HttpServletResponse response, int businessCode, String message) {
+        OpenAiResponseWriter.writeError(response, objectMapper, businessCode, message);
+    }
+
     private void writeOpenAiError(HttpServletResponse response, int status, String code, String message) {
         OpenAiResponseWriter.writeError(response, objectMapper, status, code, message);
+    }
+
+    private void writeRaw(HttpServletResponse response, int status, String contentType, String body) throws IOException {
+        response.setStatus(status);
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setContentType(contentType);
+        response.getWriter().write(body);
     }
 }
