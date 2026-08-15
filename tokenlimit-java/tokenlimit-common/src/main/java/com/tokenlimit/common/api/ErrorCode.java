@@ -14,6 +14,8 @@ public enum ErrorCode {
     BAD_REQUEST(4000, "参数错误", 400),
     /** 未授权 / 非法 API Key（旧客户端码，保留兼容） */
     UNAUTHORIZED(4001, "未授权或 API Key 无效", 401),
+    /** 无权访问（越权） */
+    FORBIDDEN(4003, "无权访问该资源", 403),
     /** 配额规则不存在 */
     QUOTA_RULE_NOT_FOUND(4028, "配额规则不存在", 400),
     /** 配额超限（旧客户端码，保留兼容） */

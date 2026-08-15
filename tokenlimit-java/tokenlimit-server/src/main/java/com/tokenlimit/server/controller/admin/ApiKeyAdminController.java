@@ -10,6 +10,8 @@ import com.tokenlimit.server.entity.ApiKey;
 import com.tokenlimit.server.entity.User;
 import com.tokenlimit.server.repository.mapper.ApiKeyMapper;
 import com.tokenlimit.server.repository.mapper.UserMapper;
+import com.tokenlimit.server.security.SecurityUtils;
+import com.tokenlimit.server.security.SessionInfo;
 import com.tokenlimit.server.util.SecretUtils;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -30,13 +32,14 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 管理端：API Key 管理（PRD V4.0）.
+ * 管理端：API Key 管理（PRD V5.0）.
+ * <p>ADMIN/TEAM_ADMIN 管理全部；USER 仅管理自己的 API Key（自动按 userCode 过滤）。</p>
  * <p>API Key 强绑定 team/user；access_key 全局唯一（格式 tl_ak_xxx）；
  * secret 明文仅创建/重置时返回一次，库中仅存哈希。</p>
  */
 @RestController
 @RequestMapping("/api/v1/admin/api-keys")
-@PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN')")
+@PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN', 'USER')")
 public class ApiKeyAdminController {
 
     private final ApiKeyMapper apiKeyMapper;
@@ -55,9 +58,17 @@ public class ApiKeyAdminController {
             @RequestParam(required = false) String userCode,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String status) {
+        SessionInfo session = SecurityUtils.requireSession();
+        boolean isUser = "USER".equals(session.getRole());
+
         LambdaQueryWrapper<ApiKey> wrapper = new LambdaQueryWrapper<ApiKey>()
-                .eq(StringUtils.hasText(teamCode), ApiKey::getTeamCode, teamCode)
-                .eq(StringUtils.hasText(userCode), ApiKey::getUserCode, userCode)
+                // USER 角色强制过滤为自己的 API Key
+                .eq(isUser, ApiKey::getUserCode, isUser ? session.getUserCode() : userCode)
+                // TEAM_ADMIN 强制过滤为本团队的 API Key
+                .eq("TEAM_ADMIN".equals(session.getRole()), ApiKey::getTeamCode, session.getTeamCode())
+                // ADMIN 可按 teamCode/userCode 筛选
+                .eq(!isUser && StringUtils.hasText(teamCode), ApiKey::getTeamCode, teamCode)
+                .eq(!isUser && StringUtils.hasText(userCode), ApiKey::getUserCode, userCode)
                 .and(StringUtils.hasText(keyword), w -> w
                         .like(ApiKey::getAccessKey, keyword)
                         .or()
@@ -72,14 +83,31 @@ public class ApiKeyAdminController {
 
     @GetMapping("/{id}")
     public Result<ApiKey> get(@PathVariable Long id) {
-        return Result.success(require(id));
+        ApiKey apiKey = require(id);
+        // USER 只能查看自己的 API Key
+        SessionInfo session = SecurityUtils.requireSession();
+        if ("USER".equals(session.getRole()) && apiKey != null
+                && !session.getUserCode().equals(apiKey.getUserCode())) {
+            return Result.success(null);
+        }
+        return Result.success(apiKey);
     }
 
     /**
      * 创建 API Key：生成 access_key + secret（secret 仅返回一次，库中仅存哈希）.
+     * <p>USER 角色只能为自己创建；ADMIN/TEAM_ADMIN 可为任意用户创建。</p>
      */
     @PostMapping
     public Result<Map<String, Object>> create(@Valid @RequestBody ApiKey apiKey) {
+        SessionInfo session = SecurityUtils.requireSession();
+        boolean isUser = "USER".equals(session.getRole());
+
+        // USER 角色强制绑定为自己
+        if (isUser) {
+            apiKey.setTeamCode(session.getTeamCode());
+            apiKey.setUserCode(session.getUserCode());
+        }
+
         if (!StringUtils.hasText(apiKey.getTeamCode())
                 || !StringUtils.hasText(apiKey.getUserCode())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "team/user 均必填");
@@ -96,6 +124,10 @@ public class ApiKeyAdminController {
         }
         if (user.getStatus() != null && "DISABLED".equals(user.getStatus())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "绑定的用户已被禁用");
+        }
+        // USER 角色只能为自己创建
+        if (isUser && !session.getUserCode().equals(user.getUserCode())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN.getCode(), "只能为自己创建 API Key");
         }
 
         String accessKey = genAccessKey();
