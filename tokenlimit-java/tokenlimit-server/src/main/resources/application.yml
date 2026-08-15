@@ -1,0 +1,56 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: tokenlimit-server
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/tokenlimit?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 0
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.tokenlimit.server.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+
+logging:
+  level:
+    com.tokenlimit: info
+
+tokenlimit:
+  # Redis key 前缀
+  redis-prefix: tokenlimit:quota
+  # 预扣减记录在 Redis 中的保留时间（秒）
+  reserve-ttl-seconds: 3600
+  # 单次调用预估 token 上限，超出则拒绝（防止异常大额预扣）
+  max-estimated-tokens: 1000000
+  # 会话有效期（秒），每次访问自动滑动续期
+  session-ttl-seconds: 1800
+  # 同一账号最大并发会话数，0 表示不限制
+  max-sessions-per-user: 1
+  # 登录连续失败达到该次数后锁定
+  login-max-fails: 5
+  # 登录锁定时间（秒）
+  login-lock-seconds: 1800
+  # 管理端登录（MVP 阶段静态账号）
+  admin:
+    username: admin
+    password: admin123

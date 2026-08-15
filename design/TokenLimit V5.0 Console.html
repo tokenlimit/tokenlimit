@@ -1,0 +1,1582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TokenLimit V5.0 Console</title>
+    <style>
+        :root {
+            --primary: #1677ff;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --bg: #f5f7fa;
+            --border: #e5e7eb;
+            --text: #111827;
+            --subtext: #6b7280;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        button, input, select { font-family: inherit; }
+
+        .login-page {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background:
+                radial-gradient(circle at top left, rgba(22,119,255,.20), transparent 32%),
+                radial-gradient(circle at bottom right, rgba(0,198,255,.18), transparent 30%),
+                #0f172a;
+        }
+
+        .login-card {
+            width: 460px;
+            max-width: calc(100vw - 40px);
+            background: #fff;
+            border-radius: 18px;
+            padding: 28px;
+            box-shadow: 0 20px 70px rgba(0,0,0,.25);
+        }
+
+        .login-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+
+        .login-logo-badge, .logo-badge {
+            width: 34px; height: 34px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #1677ff, #00c6ff);
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-weight: 800; font-size: 13px;
+        }
+
+        .login-title { font-size: 20px; font-weight: 800; }
+        .login-desc { font-size: 13px; color: var(--subtext); margin-top: 4px; line-height: 1.7; }
+
+        .form-item { margin-bottom: 14px; }
+        .form-label { display: block; font-size: 13px; color: #374151; margin-bottom: 6px; }
+
+        .input, .select {
+            width: 100%; height: 38px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            padding: 0 12px;
+            font-size: 14px;
+            background: #fff;
+            color: var(--text);
+        }
+
+        .btn {
+            height: 36px; padding: 0 14px;
+            border-radius: 9px;
+            border: 1px solid #d1d5db;
+            background: #fff;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .btn-danger { color: var(--danger); border-color: rgba(220,38,38,.35); }
+        .login-btn { width: 100%; height: 42px; margin-top: 8px; }
+        .login-tip { margin-top: 14px; font-size: 12px; color: var(--subtext); line-height: 1.8; }
+
+        .app { display: none; }
+        .layout { display: flex; min-height: 100vh; }
+
+        .sidebar {
+            width: 245px;
+            background: #001529;
+            color: rgba(255,255,255,.78);
+            position: fixed;
+            top: 0; bottom: 0; left: 0;
+            z-index: 100;
+            overflow-y: auto;
+        }
+
+        .logo {
+            height: 56px;
+            display: flex; align-items: center; gap: 10px;
+            padding: 0 18px;
+            color: #fff; font-weight: 700; font-size: 16px;
+            border-bottom: 1px solid rgba(255,255,255,.08);
+        }
+
+        .menu-group-title { padding: 14px 18px 6px; font-size: 12px; color: rgba(255,255,255,.35); }
+
+        .menu-item {
+            height: 42px;
+            display: flex; align-items: center; gap: 10px;
+            padding: 0 18px;
+            cursor: pointer; font-size: 14px;
+            transition: all .18s;
+            border-left: 3px solid transparent;
+        }
+
+        .menu-item:hover { color: #fff; background: rgba(255,255,255,.06); }
+        .menu-item.active { color: #fff; background: rgba(22,119,255,.24); border-left-color: var(--primary); }
+
+        .main { margin-left: 245px; flex: 1; min-width: 0; }
+
+        .topbar {
+            height: 56px;
+            background: #fff;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 20px;
+            position: sticky; top: 0;
+            z-index: 90;
+        }
+
+        .topbar-left, .topbar-right { display: flex; align-items: center; gap: 12px; }
+
+        .role-select {
+            height: 34px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            padding: 0 10px;
+            background: #fff;
+            color: var(--text);
+            font-size: 13px;
+        }
+
+        .breadcrumb { font-size: 13px; color: var(--subtext); }
+
+        .avatar {
+            width: 30px; height: 30px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px;
+        }
+
+        .content { padding: 20px; }
+        .page { display: none; }
+        .page.active { display: block; }
+
+        .page-header {
+            display: flex; justify-content: space-between; align-items: flex-start;
+            gap: 16px; margin-bottom: 16px;
+        }
+
+        .page-title { font-size: 18px; font-weight: 800; }
+        .page-desc { font-size: 13px; color: var(--subtext); margin-top: 5px; line-height: 1.7; }
+
+        .grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 16px; }
+        .grid-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+
+        .card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+        }
+
+        .stat-label { font-size: 13px; color: var(--subtext); margin-bottom: 8px; }
+        .stat-value { font-size: 26px; font-weight: 800; margin-bottom: 8px; }
+        .stat-sub { font-size: 12px; color: #9ca3af; }
+
+        .primary { color: var(--primary); }
+        .success { color: var(--success); }
+        .warning { color: var(--warning); }
+        .danger { color: var(--danger); }
+
+        .chart { height: 230px; display: flex; align-items: flex-end; gap: 12px; padding-top: 10px; }
+        .chart-item { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 8px; }
+        .bar { width: 100%; max-width: 44px; background: linear-gradient(180deg,#1677ff,#7cc0ff); border-radius: 8px 8px 0 0; }
+        .bar-label { font-size: 12px; color: var(--subtext); }
+
+        .table-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+        }
+
+        .table-toolbar {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            gap: 12px; flex-wrap: wrap;
+        }
+
+        .filters { display: flex; gap: 10px; flex-wrap: wrap; }
+        .filters .input, .filters .select { width: auto; height: 34px; }
+
+        table { width: 100%; border-collapse: collapse; }
+
+        th, td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #f3f4f6;
+            text-align: left;
+            font-size: 13px;
+            vertical-align: middle;
+        }
+
+        th { background: #fafafa; color: var(--subtext); font-weight: 600; white-space: nowrap; }
+        tr:hover td { background: #f8fafc; }
+
+        .tag {
+            display: inline-block;
+            min-width: 44px; text-align: center;
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .tag-success { background: #dcfce7; color: #166534; }
+        .tag-warning { background: #fef3c7; color: #92400e; }
+        .tag-error { background: #fee2e2; color: #991b1b; }
+        .tag-info { background: #dbeafe; color: #1e40af; }
+        .tag-default { background: #f3f4f6; color: #4b5563; }
+
+        .link { color: var(--primary); cursor: pointer; white-space: nowrap; }
+
+        .progress { width: 130px; height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+        .progress-bar { height: 100%; background: var(--primary); }
+        .progress-bar.warning { background: #f59e0b; }
+        .progress-bar.error { background: #ef4444; }
+        .progress-wrap { display: flex; align-items: center; gap: 8px; }
+
+        .pagination { display: flex; justify-content: flex-end; gap: 6px; padding: 14px 16px; }
+
+        .page-btn {
+            min-width: 28px; height: 28px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; cursor: pointer;
+            background: #fff;
+        }
+
+        .page-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+        .code {
+            font-family: Consolas, Monaco, monospace;
+            font-size: 12px;
+            background: #f3f4f6;
+            padding: 3px 6px;
+            border-radius: 6px;
+            word-break: break-all;
+        }
+
+        .muted { color: var(--subtext); }
+
+        .alert-info, .alert-warning {
+            padding: 10px 12px;
+            border-radius: 10px;
+            font-size: 13px;
+            line-height: 1.7;
+            margin-top: 12px;
+        }
+
+        .alert-info { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+        .alert-warning { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+
+        .tabs { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+
+        .tab {
+            padding: 8px 14px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: #fff;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 10px;
+            font-family: Consolas, Monaco, monospace;
+            font-size: 13px;
+            line-height: 1.7;
+            overflow-x: auto;
+            white-space: pre;
+        }
+
+        .modal-mask {
+            position: fixed; inset: 0;
+            background: rgba(15,23,42,.45);
+            display: none;
+            align-items: center; justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            width: 720px;
+            max-width: calc(100vw - 40px);
+            background: #fff;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,.22);
+        }
+
+        .modal-title { font-size: 16px; font-weight: 800; margin-bottom: 10px; }
+        .modal-desc { font-size: 13px; color: var(--subtext); line-height: 1.7; margin-bottom: 14px; }
+
+        .secret-box {
+            background: #0f172a;
+            color: #7dd3fc;
+            font-family: Consolas, Monaco, monospace;
+            padding: 14px;
+            border-radius: 12px;
+            font-size: 13px;
+            word-break: break-all;
+            margin: 12px 0;
+        }
+
+        .form-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 14px; }
+        .copy-row { display: flex; gap: 10px; }
+
+        @media (max-width: 1200px) {
+            .grid-4 { grid-template-columns: repeat(2,1fr); }
+            .grid-2 { grid-template-columns: 1fr; }
+            .form-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Login -->
+    <div id="loginPage" class="login-page">
+        <div class="login-card">
+            <div class="login-logo">
+                <div class="login-logo-badge">TL</div>
+                <div>
+                    <div class="login-title">TokenLimit</div>
+                    <div class="login-desc">企业大模型 Token 预算网关 / AI FinOps 平台</div>
+                </div>
+            </div>
+
+            <div class="form-item">
+                <label class="form-label">用户名</label>
+                <input class="input" id="username" value="tokenlimit" />
+            </div>
+
+            <div class="form-item">
+                <label class="form-label">密码</label>
+                <input class="input" id="password" type="password" value="tokenlimit" />
+            </div>
+
+            <div class="form-item">
+                <label class="form-label">演示角色</label>
+                <select class="select" id="loginRole">
+                    <option value="ADMIN">ADMIN - 系统管理员</option>
+                    <option value="TEAM_ADMIN">TEAM_ADMIN - Team 管理员</option>
+                    <option value="USER">USER - 普通用户</option>
+                </select>
+            </div>
+
+            <button class="btn btn-primary login-btn" onclick="login()">登录 TokenLimit</button>
+
+            <div class="login-tip">
+                V5.0 核心模型：Team → User → API Key。<br />
+                配额采用简单计数器模型。集成 jtokkit 做预估基准与异常检测。
+            </div>
+        </div>
+    </div>
+
+    <!-- App -->
+    <div id="app" class="app">
+        <div class="layout">
+            <aside class="sidebar">
+                <div class="logo">
+                    <div class="logo-badge">TL</div>
+                    <div>TokenLimit</div>
+                </div>
+
+                <div class="menu-group-title" data-roles="ADMIN,TEAM_ADMIN">控制台</div>
+                <div class="menu-item active" data-page="dashboard" data-roles="ADMIN,TEAM_ADMIN" onclick="showPage('dashboard', this)">📊 Dashboard</div>
+                <div class="menu-item" data-page="quickstart" data-roles="ADMIN,TEAM_ADMIN,USER" onclick="showPage('quickstart', this)">🔌 快速接入</div>
+
+                <div class="menu-group-title" data-roles="ADMIN">平台管理</div>
+                <div class="menu-item" data-page="provider" data-roles="ADMIN" onclick="showPage('provider', this)">🤖 Provider 管理</div>
+
+                <div class="menu-group-title" data-roles="ADMIN,TEAM_ADMIN">资源管理</div>
+                <div class="menu-item" data-page="team" data-roles="ADMIN" onclick="showPage('team', this)">👥 Team</div>
+                <div class="menu-item" data-page="user" data-roles="ADMIN,TEAM_ADMIN" onclick="showPage('user', this)">👤 User</div>
+                <div class="menu-item" data-page="apikey" data-roles="ADMIN,TEAM_ADMIN" onclick="showPage('apikey', this)">🔑 API Key</div>
+                <div class="menu-item" data-page="quota" data-roles="ADMIN,TEAM_ADMIN" onclick="showPage('quota', this)">🧮 Quota 配额</div>
+
+                <div class="menu-group-title" data-roles="ADMIN,TEAM_ADMIN">用量与审计</div>
+                <div class="menu-item" data-page="usage" data-roles="ADMIN,TEAM_ADMIN" onclick="showPage('usage', this)">📈 Usage 用量</div>
+                <div class="menu-item" data-page="audit" data-roles="ADMIN,TEAM_ADMIN" onclick="showPage('audit', this)">🧾 Audit 审计</div>
+
+                <div class="menu-group-title" data-roles="ADMIN">系统</div>
+                <div class="menu-item" data-page="settings" data-roles="ADMIN" onclick="showPage('settings', this)">⚙️ Settings</div>
+
+                <div class="menu-group-title" data-roles="USER">个人中心</div>
+                <div class="menu-item" data-page="my-overview" data-roles="USER" onclick="showPage('my-overview', this)">🏠 我的概览</div>
+                <div class="menu-item" data-page="my-quota" data-roles="USER" onclick="showPage('my-quota', this)">🧮 我的额度</div>
+                <div class="menu-item" data-page="my-usage" data-roles="USER" onclick="showPage('my-usage', this)">📈 我的用量</div>
+                <div class="menu-item" data-page="my-transactions" data-roles="USER" onclick="showPage('my-transactions', this)">📄 我的流水</div>
+                <div class="menu-item" data-page="my-apikeys" data-roles="USER" onclick="showPage('my-apikeys', this)">🔑 我的 API Key</div>
+            </aside>
+
+            <main class="main">
+                <header class="topbar">
+                    <div class="topbar-left">
+                        <div class="breadcrumb">TokenLimit / V5.0 Console</div>
+                    </div>
+
+                    <div class="topbar-right">
+                        <select class="role-select" id="roleSwitcher" onchange="switchRole(this.value)">
+                            <option value="ADMIN">角色：ADMIN</option>
+                            <option value="TEAM_ADMIN">角色：TEAM_ADMIN</option>
+                            <option value="USER">角色：USER</option>
+                        </select>
+                        <button class="btn">文档</button>
+                        <div class="avatar" id="avatarName">TL</div>
+                        <button class="btn" onclick="logout()">退出</button>
+                    </div>
+                </header>
+
+                <section class="content">
+
+                    <!-- Dashboard -->
+                    <div id="dashboard" class="page active">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">Dashboard</div>
+                                <div class="page-desc">
+                                    TokenLimit 作为 OpenAI Compatible Proxy，统一接入 Cursor / DeepSeek Harness。
+                                    配额采用简单计数器模型：调用前检查已用量，调用后累加厂商真实 usage。
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid-4">
+                            <div class="card">
+                                <div class="stat-label">今日 Token 消耗</div>
+                                <div class="stat-value">8,421,930</div>
+                                <div class="stat-sub danger">较昨日 +12.4%</div>
+                            </div>
+                            <div class="card">
+                                <div class="stat-label">Team 预算剩余</div>
+                                <div class="stat-value primary">¥32,450</div>
+                                <div class="stat-sub">本月预算 ¥80,000，使用率 59.4%</div>
+                            </div>
+                            <div class="card">
+                                <div class="stat-label">今日拦截请求</div>
+                                <div class="stat-value">327</div>
+                                <div class="stat-sub success">避免约 ¥3,210 超额消耗</div>
+                            </div>
+                            <div class="card">
+                                <div class="stat-label">今日异常偏差</div>
+                                <div class="stat-value warning">3</div>
+                                <div class="stat-sub">预估值与厂商返回偏差过大</div>
+                            </div>
+                        </div>
+
+                        <div class="grid-2">
+                            <div class="card">
+                                <div class="page-header">
+                                    <div class="page-title" style="font-size:15px;">近 7 天 Token 消耗趋势</div>
+                                    <button class="btn">导出报表</button>
+                                </div>
+                                <div class="chart">
+                                    <div class="chart-item"><div class="bar" style="height:70px;"></div><div class="bar-label">8/7</div></div>
+                                    <div class="chart-item"><div class="bar" style="height:95px;"></div><div class="bar-label">8/8</div></div>
+                                    <div class="chart-item"><div class="bar" style="height:120px;"></div><div class="bar-label">8/9</div></div>
+                                    <div class="chart-item"><div class="bar" style="height:88px;"></div><div class="bar-label">8/10</div></div>
+                                    <div class="chart-item"><div class="bar" style="height:145px;"></div><div class="bar-label">8/11</div></div>
+                                    <div class="chart-item"><div class="bar" style="height:160px;"></div><div class="bar-label">8/12</div></div>
+                                    <div class="chart-item"><div class="bar" style="height:180px;"></div><div class="bar-label">8/13</div></div>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="page-header">
+                                    <div class="page-title" style="font-size:15px;">高消耗对象 Top 5</div>
+                                    <span class="link">查看全部</span>
+                                </div>
+                                <table>
+                                    <tr><th>对象</th><th>类型</th><th>Token</th><th>费用</th></tr>
+                                    <tr><td><span class="code">team-rd</span></td><td><span class="tag tag-info">Team</span></td><td>2,211,340</td><td>¥512.21</td></tr>
+                                    <tr><td><span class="code">zhangsan</span></td><td><span class="tag tag-default">User</span></td><td>1,204,552</td><td>¥342.80</td></tr>
+                                    <tr><td><span class="code">key-cursor-zhangsan</span></td><td><span class="tag tag-warning">API Key</span></td><td>871,220</td><td>¥176.02</td></tr>
+                                    <tr><td><span class="code">app-deepseek-harness</span></td><td><span class="tag tag-info">Team</span></td><td>653,119</td><td>¥141.37</td></tr>
+                                    <tr><td><span class="code">bot-ci</span></td><td><span class="tag tag-default">User</span></td><td>431,998</td><td>¥92.11</td></tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Start -->
+                    <div id="quickstart" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">快速接入</div>
+                                <div class="page-desc">
+                                    TokenLimit 提供 OpenAI Compatible API。选择你的 API Key，在 AI 客户端中完成配置即可接入。
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid-2">
+                            <div class="card">
+                                <div class="page-title" style="font-size:15px;">接入配置</div>
+                                <div class="page-desc">选择 API Key 并复制 Gateway URL，在你的 AI 客户端中完成配置。</div>
+
+                                <div class="form-item" style="margin-top:12px;">
+                                    <label class="form-label">选择你的 API Key</label>
+                                    <div class="copy-row">
+                                        <select class="select" style="flex:1;">
+                                            <option>key-cursor-zhangsan (tl_prod_ak_8f2ka9)</option>
+                                            <option>key-deepseek-ci (tl_prod_ak_j92mx1)</option>
+                                        </select>
+                                        <button class="btn" onclick="showPage('my-apikeys', null)">去创建</button>
+                                    </div>
+                                </div>
+
+                                <div class="form-item">
+                                    <label class="form-label">Gateway URL（由系统管理员配置）</label>
+                                    <div class="copy-row">
+                                        <input class="input" value="https://tokenlimit.your-company.com/v1" disabled style="flex:1;" />
+                                        <button class="btn" onclick="copyText('https://tokenlimit.your-company.com/v1')">复制</button>
+                                    </div>
+                                </div>
+
+                                <div class="alert-warning">
+                                    请勿在 Cursor、DeepSeek Harness 或代码中直接配置真实 DeepSeek / OpenAI API Key。
+                                    真实供应商密钥由 TokenLimit Provider Credential 统一托管。
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="page-title" style="font-size:15px;">客户端配置示例</div>
+
+                                <div class="tabs">
+                                    <div class="tab active" onclick="switchTab(this, 'tab-cursor')">Cursor</div>
+                                    <div class="tab" onclick="switchTab(this, 'tab-deepseek')">DeepSeek Harness</div>
+                                    <div class="tab" onclick="switchTab(this, 'tab-curl')">cURL</div>
+                                </div>
+
+                                <div id="tab-cursor" class="tab-content active">
+                                    <div class="code-block">1. 打开 Cursor Settings → Models
+2. 找到 OpenAI API Key 配置项
+3. Base URL 填入：
+   https://tokenlimit.your-company.com/v1
+4. API Key 填入：
+   tl_prod_ak_8f2ka9.xxxxxxxx
+5. 添加模型：deepseek-chat
+6. 开启 Override OpenAI Base URL</div>
+                                </div>
+
+                                <div id="tab-deepseek" class="tab-content">
+                                    <div class="code-block">base_url = "https://tokenlimit.your-company.com/v1"
+api_key  = "tl_prod_ak_j92mx1.xxxxxxxx"
+model    = "deepseek-chat"</div>
+                                </div>
+
+                                <div id="tab-curl" class="tab-content">
+                                    <div class="code-block">curl https://tokenlimit.your-company.com/v1/chat/completions \
+  -H "Authorization: Bearer tl_prod_ak_8f2ka9.xxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-chat",
+    "messages": [
+      {"role": "user", "content": "Hello TokenLimit"}
+    ]
+  }'</div>
+                                </div>
+
+                                <div style="margin-top:12px;">
+                                    <span class="link">查看完整接入文档与故障排查 →</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Provider -->
+                    <div id="provider" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">Provider 供应商与密钥托管</div>
+                                <div class="page-desc">
+                                    配置真实大模型供应商的 API Key。TokenLimit Gateway 根据 Team Model Policy 自动选择 Provider Credential 并转发请求。
+                                </div>
+                            </div>
+                            <button class="btn btn-primary" onclick="openModal('addProviderModal')">添加 Provider Credential</button>
+                        </div>
+
+                        <div class="table-card">
+                            <div class="table-toolbar">
+                                <div class="filters">
+                                    <input class="input" placeholder="搜索 Provider" />
+                                    <select class="select">
+                                        <option>作用域：全部</option>
+                                        <option>GLOBAL</option>
+                                        <option>TEAM</option>
+                                    </select>
+                                </div>
+                                <button class="btn">刷新</button>
+                            </div>
+
+                            <table>
+                                <tr>
+                                    <th>Provider</th>
+                                    <th>Credential</th>
+                                    <th>Base URL</th>
+                                    <th>作用域</th>
+                                    <th>绑定 Team</th>
+                                    <th>模型数</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                                <tr>
+                                    <td><span class="tag tag-info">DeepSeek</span></td>
+                                    <td>deepseek-company-main</td>
+                                    <td><span class="code">https://api.deepseek.com/v1</span></td>
+                                    <td><span class="tag tag-default">GLOBAL</span></td>
+                                    <td>-</td>
+                                    <td>2</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">编辑密钥</span> | <span class="link">模型映射</span> | <span class="link">禁用</span></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="tag tag-info">OpenAI</span></td>
+                                    <td>openai-team-rd</td>
+                                    <td><span class="code">https://api.openai.com/v1</span></td>
+                                    <td><span class="tag tag-warning">TEAM</span></td>
+                                    <td><span class="code">team-rd</span></td>
+                                    <td>3</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">编辑密钥</span> | <span class="link">模型映射</span> | <span class="link">禁用</span></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="tag tag-info">Qwen</span></td>
+                                    <td>qwen-company-main</td>
+                                    <td><span class="code">https://dashscope.aliyuncs.com/compatible-mode/v1</span></td>
+                                    <td><span class="tag tag-default">GLOBAL</span></td>
+                                    <td>-</td>
+                                    <td>2</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">编辑密钥</span> | <span class="link">模型映射</span> | <span class="link">禁用</span></td>
+                                </tr>
+                            </table>
+
+                            <div class="pagination">
+                                <div class="page-btn">上一页</div>
+                                <div class="page-btn active">1</div>
+                                <div class="page-btn">2</div>
+                                <div class="page-btn">下一页</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Team -->
+                    <div id="team" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">Team 团队 / 成本中心</div>
+                                <div class="page-desc">Team 是预算池、成本中心和管理边界。TeamAdmin 管理 Team 下 User、API Key、配额和成本。</div>
+                            </div>
+                            <button class="btn btn-primary">新建 Team</button>
+                        </div>
+
+                        <div class="table-card">
+                            <table>
+                                <tr>
+                                    <th>Team</th>
+                                    <th>名称</th>
+                                    <th>月预算</th>
+                                    <th>已使用</th>
+                                    <th>剩余</th>
+                                    <th>预算进度</th>
+                                    <th>User 数</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                                <tr>
+                                    <td><span class="code">team-rd</span></td>
+                                    <td>研发部</td>
+                                    <td>¥30,000</td>
+                                    <td>¥18,120</td>
+                                    <td>¥11,880</td>
+                                    <td>
+                                        <div class="progress-wrap">
+                                            <div class="progress"><div class="progress-bar warning" style="width:60%;"></div></div>
+                                            <span>60%</span>
+                                        </div>
+                                    </td>
+                                    <td>42</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">详情</span></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="code">app-deepseek-harness</span></td>
+                                    <td>DeepSeek Harness</td>
+                                    <td>¥25,000</td>
+                                    <td>¥21,880</td>
+                                    <td>¥3,120</td>
+                                    <td>
+                                        <div class="progress-wrap">
+                                            <div class="progress"><div class="progress-bar error" style="width:88%;"></div></div>
+                                            <span>88%</span>
+                                        </div>
+                                    </td>
+                                    <td>6</td>
+                                    <td><span class="tag tag-warning">预警</span></td>
+                                    <td><span class="link">详情</span></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="code">team-marketing</span></td>
+                                    <td>市场部</td>
+                                    <td>¥15,000</td>
+                                    <td>¥5,220</td>
+                                    <td>¥9,780</td>
+                                    <td>
+                                        <div class="progress-wrap">
+                                            <div class="progress"><div class="progress-bar" style="width:35%;"></div></div>
+                                            <span>35%</span>
+                                        </div>
+                                    </td>
+                                    <td>18</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">详情</span></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- User -->
+                    <div id="user" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">User 用户</div>
+                                <div class="page-desc">User 是登录账号和成本责任人。User 可创建多个 API Key，调用行为通过 API Key 识别并归属到 User / Team。</div>
+                            </div>
+                            <button class="btn btn-primary">新建 User</button>
+                        </div>
+
+                        <div class="table-card">
+                            <table>
+                                <tr>
+                                    <th>User</th>
+                                    <th>名称</th>
+                                    <th>Team</th>
+                                    <th>角色</th>
+                                    <th>quota_mode</th>
+                                    <th>今日已用</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                                <tr>
+                                    <td><span class="code">zhangsan</span></td>
+                                    <td>张三</td>
+                                    <td><span class="code">team-rd</span></td>
+                                    <td><span class="tag tag-default">USER</span></td>
+                                    <td><span class="tag tag-default">PERSONAL_FIRST_THEN_TEAM</span></td>
+                                    <td>121,550</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">配额</span> | <span class="link">API Key</span></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="code">lisi</span></td>
+                                    <td>李四</td>
+                                    <td><span class="code">team-rd</span></td>
+                                    <td><span class="tag tag-default">USER</span></td>
+                                    <td><span class="tag tag-default">PERSONAL_ONLY</span></td>
+                                    <td>198,230</td>
+                                    <td><span class="tag tag-warning">接近限额</span></td>
+                                    <td><span class="link">配额</span> | <span class="link">API Key</span></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="code">bot-ci</span></td>
+                                    <td>CI 机器人</td>
+                                    <td><span class="code">team-rd</span></td>
+                                    <td><span class="tag tag-default">USER</span></td>
+                                    <td><span class="tag tag-default">TEAM_ONLY</span></td>
+                                    <td>88,120</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">配额</span> | <span class="link">API Key</span></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- API Key -->
+                    <div id="apikey" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">API Key 管理</div>
+                                <div class="page-desc">API Key 是调用 TokenLimit Proxy 的访问凭证。每个 Key 强绑定 Team + User。</div>
+                            </div>
+                            <button class="btn btn-primary" onclick="openModal('createApiKeyModal')">创建 API Key</button>
+                        </div>
+
+                        <div class="table-card">
+                            <table>
+                                <tr>
+                                    <th>Key Name</th>
+                                    <th>Access Key</th>
+                                    <th>User</th>
+                                    <th>Team</th>
+                                    <th>允许模型</th>
+                                    <th>状态</th>
+                                    <th>最后使用时间</th>
+                                    <th>操作</th>
+                                </tr>
+                                <tr>
+                                    <td>key-cursor-zhangsan</td>
+                                    <td><span class="code">tl_prod_ak_8f2ka9</span></td>
+                                    <td><span class="code">zhangsan</span></td>
+                                    <td><span class="code">team-rd</span></td>
+                                    <td>deepseek-chat, gpt-4o-mini</td>
+                                    <td><span class="tag tag-success">ENABLED</span></td>
+                                    <td>2026-08-13 14:22</td>
+                                    <td><span class="link">禁用</span> | <span class="link btn-danger">删除</span></td>
+                                </tr>
+                                <tr>
+                                    <td>key-deepseek-harness-ci</td>
+                                    <td><span class="code">tl_prod_ak_j92mx1</span></td>
+                                    <td><span class="code">bot-ci</span></td>
+                                    <td><span class="code">app-deepseek-harness</span></td>
+                                    <td>deepseek-chat</td>
+                                    <td><span class="tag tag-success">ENABLED</span></td>
+                                    <td>2026-08-13 13:51</td>
+                                    <td><span class="link">禁用</span> | <span class="link btn-danger">删除</span></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Quota -->
+                    <div id="quota" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">Quota 配额规则</div>
+                                <div class="page-desc">支持 Team 主账户与 User 子账户。实时可用额度 = Limit - Used。</div>
+                            </div>
+                            <button class="btn btn-primary">新建规则</button>
+                        </div>
+
+                        <div class="table-card">
+                            <table>
+                                <tr>
+                                    <th>规则名称</th>
+                                    <th>对象类型</th>
+                                    <th>对象</th>
+                                    <th>限制类型</th>
+                                    <th>限额</th>
+                                    <th>周期</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                                <tr>
+                                    <td>研发部月预算</td>
+                                    <td><span class="tag tag-info">TEAM</span></td>
+                                    <td><span class="code">team-rd</span></td>
+                                    <td>COST</td>
+                                    <td>¥30,000</td>
+                                    <td>MONTH</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">编辑</span></td>
+                                </tr>
+                                <tr>
+                                    <td>张三日 Token 限额</td>
+                                    <td><span class="tag tag-default">USER</span></td>
+                                    <td><span class="code">zhangsan</span></td>
+                                    <td>TOKEN</td>
+                                    <td>500,000</td>
+                                    <td>DAY</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">编辑</span></td>
+                                </tr>
+                                <tr>
+                                    <td>李四日 Token 限额</td>
+                                    <td><span class="tag tag-default">USER</span></td>
+                                    <td><span class="code">lisi</span></td>
+                                    <td>TOKEN</td>
+                                    <td>200,000</td>
+                                    <td>DAY</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">编辑</span></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Usage -->
+                    <div id="usage" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">Usage 用量统计</div>
+                                <div class="page-desc">
+                                    调用日志记录预估值（jtokkit）和真实值（厂商返回）。usage_source 标记数据来源，anomaly 标记偏差异常。
+                                </div>
+                            </div>
+                            <button class="btn">导出 CSV</button>
+                        </div>
+
+                        <div class="table-card">
+                            <div class="table-toolbar">
+                                <div class="filters">
+                                    <input class="input" type="date" value="2026-08-13" />
+                                    <select class="select">
+                                        <option>Team：全部</option>
+                                        <option>team-rd</option>
+                                        <option>app-deepseek-harness</option>
+                                    </select>
+                                    <select class="select">
+                                        <option>状态：全部</option>
+                                        <option>SUCCESS</option>
+                                        <option>INTERRUPTED</option>
+                                        <option>ERROR</option>
+                                    </select>
+                                    <select class="select">
+                                        <option>来源：全部</option>
+                                        <option>PROVIDER</option>
+                                        <option>ESTIMATED</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-primary">查询</button>
+                            </div>
+
+                            <table>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>API Key</th>
+                                    <th>User</th>
+                                    <th>Team</th>
+                                    <th>模型</th>
+                                    <th>预估 Tokens</th>
+                                    <th>真实 Tokens</th>
+                                    <th>来源</th>
+                                    <th>异常</th>
+                                    <th>状态</th>
+                                </tr>
+                                <tr>
+                                    <td>14:21:03</td>
+                                    <td><span class="code">key-cursor-zhangsan</span></td>
+                                    <td><span class="code">zhangsan</span></td>
+                                    <td><span class="code">team-rd</span></td>
+                                    <td>deepseek-chat</td>
+                                    <td>1,280</td>
+                                    <td>1,220</td>
+                                    <td><span class="tag tag-success">PROVIDER</span></td>
+                                    <td>-</td>
+                                    <td><span class="tag tag-success">SUCCESS</span></td>
+                                </tr>
+                                <tr>
+                                    <td>14:20:45</td>
+                                    <td><span class="code">key-deepseek-ci</span></td>
+                                    <td><span class="code">bot-ci</span></td>
+                                    <td><span class="code">app-deepseek-harness</span></td>
+                                    <td>deepseek-chat</td>
+                                    <td>4,900</td>
+                                    <td>5,120</td>
+                                    <td><span class="tag tag-success">PROVIDER</span></td>
+                                    <td>-</td>
+                                    <td><span class="tag tag-success">SUCCESS</span></td>
+                                </tr>
+                                <tr>
+                                    <td>14:19:30</td>
+                                    <td><span class="code">key-cursor-lisi</span></td>
+                                    <td><span class="code">lisi</span></td>
+                                    <td><span class="code">team-rd</span></td>
+                                    <td>gpt-4o-mini</td>
+                                    <td>2,100</td>
+                                    <td>2,100</td>
+                                    <td><span class="tag tag-warning">ESTIMATED</span></td>
+                                    <td>-</td>
+                                    <td><span class="tag tag-error">INTERRUPTED</span></td>
+                                </tr>
+                                <tr>
+                                    <td>14:18:12</td>
+                                    <td><span class="code">key-cursor-zhangsan</span></td>
+                                    <td><span class="code">zhangsan</span></td>
+                                    <td><span class="code">team-rd</span></td>
+                                    <td>gpt-4o-mini</td>
+                                    <td>800</td>
+                                    <td>5,200</td>
+                                    <td><span class="tag tag-success">PROVIDER</span></td>
+                                    <td><span class="tag tag-error">⚠ 偏差 550%</span></td>
+                                    <td><span class="tag tag-success">SUCCESS</span></td>
+                                </tr>
+                                <tr>
+                                    <td>14:15:00</td>
+                                    <td><span class="code">key-cursor-lisi</span></td>
+                                    <td><span class="code">lisi</span></td>
+                                    <td><span class="code">team-rd</span></td>
+                                    <td>gpt-4o-mini</td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td><span class="tag tag-error">TEAM_QUOTA_EXCEEDED</span></td>
+                                </tr>
+                            </table>
+
+                            <div class="pagination">
+                                <div class="page-btn">上一页</div>
+                                <div class="page-btn active">1</div>
+                                <div class="page-btn">2</div>
+                                <div class="page-btn">3</div>
+                                <div class="page-btn">下一页</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Audit -->
+                    <div id="audit" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">Audit 审计日志</div>
+                                <div class="page-desc">记录登录、API Key 创建、Provider 密钥变更、配额拦截、异常偏差等关键事件。</div>
+                            </div>
+                        </div>
+
+                        <div class="table-card">
+                            <table>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>操作人</th>
+                                    <th>事件类型</th>
+                                    <th>对象</th>
+                                    <th>详情</th>
+                                    <th>结果</th>
+                                </tr>
+                                <tr>
+                                    <td>14:18:02</td>
+                                    <td><span class="code">rd-admin</span></td>
+                                    <td><span class="tag tag-info">CREATE_API_KEY</span></td>
+                                    <td><span class="code">zhangsan / key-cursor-zhangsan</span></td>
+                                    <td>创建 Cursor 接入 API Key</td>
+                                    <td><span class="tag tag-success">成功</span></td>
+                                </tr>
+                                <tr>
+                                    <td>14:18:12</td>
+                                    <td>system</td>
+                                    <td><span class="tag tag-error">USAGE_ANOMALY</span></td>
+                                    <td><span class="code">zhangsan / gpt-4o-mini</span></td>
+                                    <td>estimated=800, provider=5200, diff_rate=550%</td>
+                                    <td><span class="tag tag-error">异常</span></td>
+                                </tr>
+                                <tr>
+                                    <td>14:15:00</td>
+                                    <td>system</td>
+                                    <td><span class="tag tag-error">QUOTA_BLOCK</span></td>
+                                    <td><span class="code">team-rd / lisi</span></td>
+                                    <td>Team 月预算不足，拦截 gpt-4o-mini 请求</td>
+                                    <td><span class="tag tag-error">拦截</span></td>
+                                </tr>
+                                <tr>
+                                    <td>13:02:11</td>
+                                    <td><span class="code">admin</span></td>
+                                    <td><span class="tag tag-warning">UPDATE_PROVIDER_CREDENTIAL</span></td>
+                                    <td><span class="code">deepseek-company-main</span></td>
+                                    <td>更新 DeepSeek 真实 API Key</td>
+                                    <td><span class="tag tag-success">成功</span></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Settings -->
+                    <div id="settings" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">Settings 系统设置</div>
+                                <div class="page-desc">配置 Gateway URL、告警阈值、异常偏差阈值等。</div>
+                            </div>
+                        </div>
+
+                        <div class="card" style="max-width:860px;">
+                            <div class="form-grid">
+                                <div class="form-item">
+                                    <label class="form-label">Gateway Public URL</label>
+                                    <input class="input" value="https://tokenlimit.your-company.com/v1" />
+                                </div>
+
+                                <div class="form-item">
+                                    <label class="form-label">预算告警阈值</label>
+                                    <input class="input" value="80%" />
+                                </div>
+
+                                <div class="form-item">
+                                    <label class="form-label">异常偏差阈值</label>
+                                    <input class="input" value="50%" />
+                                </div>
+
+                                <div class="form-item">
+                                    <label class="form-label">异常失败策略</label>
+                                    <select class="select">
+                                        <option selected>fail-close</option>
+                                        <option>fail-open</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div style="margin-top:18px; display:flex; gap:10px;">
+                                <button class="btn btn-primary">保存设置</button>
+                                <button class="btn">重置</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- My Overview -->
+                    <div id="my-overview" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">我的概览</div>
+                                <div class="page-desc">当前用户：zhangsan ｜ Team：team-rd</div>
+                            </div>
+                        </div>
+
+                        <div class="grid-4">
+                            <div class="card">
+                                <div class="stat-label">今日已用 Token</div>
+                                <div class="stat-value">121,550</div>
+                                <div class="stat-sub">个人日额度：500,000</div>
+                            </div>
+                            <div class="card">
+                                <div class="stat-label">预计剩余 Token</div>
+                                <div class="stat-value primary">378,450</div>
+                                <div class="stat-sub">Limit - Used</div>
+                            </div>
+                            <div class="card">
+                                <div class="stat-label">本月费用</div>
+                                <div class="stat-value">¥312.22</div>
+                                <div class="stat-sub">个人月限额：¥500</div>
+                            </div>
+                            <div class="card">
+                                <div class="stat-label">API Key 数量</div>
+                                <div class="stat-value">2</div>
+                                <div class="stat-sub">最近使用：key-cursor-zhangsan</div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="page-title" style="font-size:15px;">我的 Token 消耗趋势</div>
+                            <div class="chart">
+                                <div class="chart-item"><div class="bar" style="height:50px;"></div><div class="bar-label">8/7</div></div>
+                                <div class="chart-item"><div class="bar" style="height:80px;"></div><div class="bar-label">8/8</div></div>
+                                <div class="chart-item"><div class="bar" style="height:66px;"></div><div class="bar-label">8/9</div></div>
+                                <div class="chart-item"><div class="bar" style="height:92px;"></div><div class="bar-label">8/10</div></div>
+                                <div class="chart-item"><div class="bar" style="height:120px;"></div><div class="bar-label">8/11</div></div>
+                                <div class="chart-item"><div class="bar" style="height:86px;"></div><div class="bar-label">8/12</div></div>
+                                <div class="chart-item"><div class="bar" style="height:102px;"></div><div class="bar-label">8/13</div></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- My Quota -->
+                    <div id="my-quota" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">我的额度</div>
+                                <div class="page-desc">个人额度由 TeamAdmin 分配。实时可用额度 = Limit - Used。</div>
+                            </div>
+                        </div>
+
+                        <div class="table-card">
+                            <table>
+                                <tr>
+                                    <th>额度类型</th>
+                                    <th>周期</th>
+                                    <th>限额</th>
+                                    <th>已使用</th>
+                                    <th>剩余</th>
+                                    <th>状态</th>
+                                </tr>
+                                <tr>
+                                    <td>个人 Token 限额</td>
+                                    <td>DAY</td>
+                                    <td>500,000</td>
+                                    <td>121,550</td>
+                                    <td>378,450</td>
+                                    <td><span class="tag tag-success">正常</span></td>
+                                </tr>
+                                <tr>
+                                    <td>个人月费用限额</td>
+                                    <td>MONTH</td>
+                                    <td>¥500</td>
+                                    <td>¥312.22</td>
+                                    <td>¥187.78</td>
+                                    <td><span class="tag tag-warning">注意</span></td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <div class="card" style="margin-top:16px;">
+                            <div class="page-title" style="font-size:15px;">quota_mode</div>
+                            <div class="page-desc">
+                                当前模式：<span class="tag tag-default">PERSONAL_FIRST_THEN_TEAM</span><br /><br />
+                                优先使用个人额度。个人额度不足时，如果 TeamAdmin 允许，将使用 team-rd 的团队共享额度。
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- My Usage -->
+                    <div id="my-usage" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">我的用量</div>
+                                <div class="page-desc">展示当前用户所有 API Key 产生的 Token 用量。</div>
+                            </div>
+                        </div>
+
+                        <div class="table-card">
+                            <table>
+                                <tr>
+                                    <th>日期</th>
+                                    <th>API Key</th>
+                                    <th>模型</th>
+                                    <th>调用次数</th>
+                                    <th>预估 Tokens</th>
+                                    <th>真实 Tokens</th>
+                                    <th>费用</th>
+                                </tr>
+                                <tr>
+                                    <td>2026-08-13</td>
+                                    <td><span class="code">key-cursor-zhangsan</span></td>
+                                    <td>deepseek-chat</td>
+                                    <td>86</td>
+                                    <td>95,000</td>
+                                    <td>92,120</td>
+                                    <td>¥62.10</td>
+                                </tr>
+                                <tr>
+                                    <td>2026-08-13</td>
+                                    <td><span class="code">key-python-app</span></td>
+                                    <td>gpt-4o-mini</td>
+                                    <td>32</td>
+                                    <td>30,800</td>
+                                    <td>29,430</td>
+                                    <td>¥24.10</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- My Transactions -->
+                    <div id="my-transactions" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">我的流水</div>
+                                <div class="page-desc">展示当前用户所有 API Key 的调用流水。</div>
+                            </div>
+                        </div>
+
+                        <div class="table-card">
+                            <table>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>API Key</th>
+                                    <th>模型</th>
+                                    <th>预估 Tokens</th>
+                                    <th>真实 Tokens</th>
+                                    <th>费用</th>
+                                    <th>来源</th>
+                                    <th>状态</th>
+                                </tr>
+                                <tr>
+                                    <td>14:21:03</td>
+                                    <td><span class="code">key-cursor-zhangsan</span></td>
+                                    <td>deepseek-chat</td>
+                                    <td>1,280</td>
+                                    <td>1,220</td>
+                                    <td>¥0.18</td>
+                                    <td><span class="tag tag-success">PROVIDER</span></td>
+                                    <td><span class="tag tag-success">SUCCESS</span></td>
+                                </tr>
+                                <tr>
+                                    <td>13:20:45</td>
+                                    <td><span class="code">key-python-app</span></td>
+                                    <td>gpt-4o-mini</td>
+                                    <td>4,800</td>
+                                    <td>4,821</td>
+                                    <td>¥0.42</td>
+                                    <td><span class="tag tag-success">PROVIDER</span></td>
+                                    <td><span class="tag tag-success">SUCCESS</span></td>
+                                </tr>
+                                <tr>
+                                    <td>11:05:22</td>
+                                    <td><span class="code">key-cursor-zhangsan</span></td>
+                                    <td>deepseek-chat</td>
+                                    <td>3,200</td>
+                                    <td>3,200</td>
+                                    <td>¥0.35</td>
+                                    <td><span class="tag tag-warning">ESTIMATED</span></td>
+                                    <td><span class="tag tag-error">INTERRUPTED</span></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- My API Keys -->
+                    <div id="my-apikeys" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">我的 API Key</div>
+                                <div class="page-desc">API Key 用于 Cursor / DeepSeek Harness 接入 TokenLimit Proxy。</div>
+                            </div>
+                            <button class="btn btn-primary" onclick="openModal('createApiKeyModal')">创建 API Key</button>
+                        </div>
+
+                        <div class="table-card">
+                            <table>
+                                <tr>
+                                    <th>Key Name</th>
+                                    <th>Access Key</th>
+                                    <th>允许模型</th>
+                                    <th>状态</th>
+                                    <th>最后使用时间</th>
+                                    <th>操作</th>
+                                </tr>
+                                <tr>
+                                    <td>key-cursor-zhangsan</td>
+                                    <td><span class="code">tl_prod_ak_8f2ka9</span></td>
+                                    <td>deepseek-chat, gpt-4o-mini</td>
+                                    <td><span class="tag tag-success">ENABLED</span></td>
+                                    <td>2026-08-13 14:22</td>
+                                    <td><span class="link">禁用</span> | <span class="link btn-danger">删除</span></td>
+                                </tr>
+                                <tr>
+                                    <td>key-python-app</td>
+                                    <td><span class="code">tl_prod_ak_j92mx1</span></td>
+                                    <td>gpt-4o-mini</td>
+                                    <td><span class="tag tag-success">ENABLED</span></td>
+                                    <td>2026-08-13 13:51</td>
+                                    <td><span class="link">禁用</span> | <span class="link btn-danger">删除</span></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Create API Key Modal -->
+    <div class="modal-mask" id="createApiKeyModal" onclick="closeModalOutside(event, 'createApiKeyModal')">
+        <div class="modal">
+            <div class="modal-title">创建 API Key 成功</div>
+            <div class="modal-desc">
+                API Key 已绑定 Team + User。Cursor / DeepSeek Harness 只需配置 Gateway URL 和该 API Key。
+            </div>
+
+            <div class="form-grid">
+                <div class="form-item">
+                    <label class="form-label">Team</label>
+                    <input class="input" value="team-rd" disabled />
+                </div>
+                <div class="form-item">
+                    <label class="form-label">User</label>
+                    <input class="input" value="zhangsan" disabled />
+                </div>
+                <div class="form-item">
+                    <label class="form-label">Key Name</label>
+                    <input class="input" value="key-cursor-zhangsan" disabled />
+                </div>
+                <div class="form-item">
+                    <label class="form-label">Access Key</label>
+                    <input class="input" value="tl_prod_ak_8f2ka9" disabled />
+                </div>
+                <div class="form-item">
+                    <label class="form-label">允许模型</label>
+                    <input class="input" value="deepseek-chat, gpt-4o-mini" disabled />
+                </div>
+            </div>
+
+            <div class="secret-box">
+                Secret: sk_tl_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c
+            </div>
+
+            <div class="alert-warning">
+                Secret 仅显示一次，请立即保存。数据库仅存储 Secret Hash，系统无法再次查看明文。
+            </div>
+
+            <div style="margin-top:18px; display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn" onclick="closeModal('createApiKeyModal')">关闭</button>
+                <button class="btn btn-primary" onclick="closeModal('createApiKeyModal')">我已保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Provider Modal -->
+    <div class="modal-mask" id="addProviderModal" onclick="closeModalOutside(event, 'addProviderModal')">
+        <div class="modal">
+            <div class="modal-title">添加 Provider Credential</div>
+            <div class="modal-desc">
+                配置真实大模型供应商 API Key。TokenLimit 会加密存储，并在代理转发时自动使用。客户端不会看到真实供应商 Key。
+            </div>
+
+            <div class="form-grid">
+                <div class="form-item">
+                    <label class="form-label">Provider</label>
+                    <select class="select">
+                        <option>DeepSeek</option>
+                        <option>OpenAI</option>
+                        <option>Anthropic</option>
+                        <option>Qwen</option>
+                        <option>Custom OpenAI Compatible</option>
+                    </select>
+                </div>
+                <div class="form-item">
+                    <label class="form-label">Credential Name</label>
+                    <input class="input" placeholder="例如：deepseek-company-main" />
+                </div>
+                <div class="form-item">
+                    <label class="form-label">Base URL</label>
+                    <input class="input" placeholder="https://api.deepseek.com/v1" />
+                </div>
+                <div class="form-item">
+                    <label class="form-label">真实 API Key</label>
+                    <input class="input" type="password" placeholder="sk-..." />
+                </div>
+                <div class="form-item">
+                    <label class="form-label">作用域</label>
+                    <select class="select">
+                        <option>GLOBAL</option>
+                        <option>TEAM</option>
+                    </select>
+                </div>
+                <div class="form-item">
+                    <label class="form-label">绑定 Team</label>
+                    <select class="select">
+                        <option>仅 GLOBAL 时不可选</option>
+                        <option>team-rd</option>
+                        <option>app-deepseek-harness</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="alert-warning">
+                真实 API Key 提交后将加密存储，页面不会再次展示明文。请确保该 Key 已设置供应商侧预算告警。
+            </div>
+
+            <div style="margin-top:18px; display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn" onclick="closeModal('addProviderModal')">取消</button>
+                <button class="btn btn-primary" onclick="closeModal('addProviderModal')">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function login() {
+            var role = document.getElementById('loginRole').value;
+            var username = document.getElementById('username').value || 'tokenlimit';
+
+            document.getElementById('loginPage').style.display = 'none';
+            document.getElementById('app').style.display = 'block';
+            document.getElementById('roleSwitcher').value = role;
+            document.getElementById('avatarName').innerText = username.substring(0, 2).toUpperCase();
+
+            switchRole(role);
+        }
+
+        function logout() {
+            document.getElementById('app').style.display = 'none';
+            document.getElementById('loginPage').style.display = 'flex';
+        }
+
+        function switchRole(role) {
+            document.querySelectorAll('.menu-item').forEach(function (item) {
+                var roles = item.getAttribute('data-roles') || '';
+                item.style.display = roles.split(',').indexOf(role) >= 0 ? 'flex' : 'none';
+                item.classList.remove('active');
+            });
+
+            document.querySelectorAll('.menu-group-title').forEach(function (title) {
+                var roles = title.getAttribute('data-roles') || '';
+                title.style.display = roles.split(',').indexOf(role) >= 0 ? 'block' : 'none';
+            });
+
+            var defaultPage = role === 'USER' ? 'my-overview' : 'dashboard';
+            var firstVisibleMenuItem = null;
+
+            document.querySelectorAll('.menu-item').forEach(function (item) {
+                if (!firstVisibleMenuItem && item.style.display !== 'none' && item.getAttribute('data-page') === defaultPage) {
+                    firstVisibleMenuItem = item;
+                }
+            });
+
+            if (!firstVisibleMenuItem) {
+                document.querySelectorAll('.menu-item').forEach(function (item) {
+                    if (!firstVisibleMenuItem && item.style.display !== 'none') {
+                        firstVisibleMenuItem = item;
+                    }
+                });
+            }
+
+            showPage(defaultPage, firstVisibleMenuItem);
+        }
+
+        function showPage(pageId, menuItem) {
+            document.querySelectorAll('.page').forEach(function (page) {
+                page.classList.remove('active');
+            });
+
+            document.querySelectorAll('.menu-item').forEach(function (item) {
+                item.classList.remove('active');
+            });
+
+            var page = document.getElementById(pageId);
+            if (page) {
+                page.classList.add('active');
+            }
+
+            if (menuItem) {
+                menuItem.classList.add('active');
+            }
+        }
+
+        function switchTab(tabEl, contentId) {
+            var parent = tabEl.closest('.card');
+
+            parent.querySelectorAll('.tab').forEach(function (t) {
+                t.classList.remove('active');
+            });
+
+            parent.querySelectorAll('.tab-content').forEach(function (c) {
+                c.classList.remove('active');
+            });
+
+            tabEl.classList.add('active');
+            document.getElementById(contentId).classList.add('active');
+        }
+
+        function openModal(modalId) {
+            document.getElementById(modalId).style.display = 'flex';
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        function closeModalOutside(event, modalId) {
+            if (event.target.id === modalId) {
+                closeModal(modalId);
+            }
+        }
+
+        function copyText(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function () {
+                    alert('已复制：' + text);
+                });
+            } else {
+                alert('复制不可用，请手动复制：' + text);
+            }
+        }
+    </script>
+</body>
+</html>
