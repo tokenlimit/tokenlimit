@@ -80,8 +80,8 @@ public class ProviderResolverService {
             return toResolved(globalCredential);
         }
 
-        throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(),
-                "PROVIDER_NOT_FOUND: 团队 " + teamCode + " 未配置模型 " + model + " 的上游凭证");
+        throw new BusinessException(ErrorCode.PROVIDER_NOT_FOUND,
+                "团队 " + teamCode + " 未配置模型 " + model + " 的上游凭证");
     }
 
     private ProviderCredential findActive(String credentialCode) {

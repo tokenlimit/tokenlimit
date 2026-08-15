@@ -7,7 +7,6 @@ import com.tokenlimit.server.dto.QuotaCheckRequest;
 import com.tokenlimit.server.dto.UsageReportRequest;
 import com.tokenlimit.server.service.QuotaService;
 import jakarta.validation.Valid;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -15,9 +14,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 客户端接口：配额检查 / 用量上报（PRD V2.0）.
- * <p>鉴权统一使用 {@code Authorization: Bearer <access_key>:<secret>} 请求头，
- * access key 与 secret 双重校验（双向校验）。</p>
+ * 客户端配额接口（PRD V5.0）.
+ * <p>鉴权：{@code Authorization: Bearer <access_key>:<secret>}（双向校验）。</p>
  */
 @RestController
 @RequestMapping("/api/v1/client")
@@ -30,77 +28,54 @@ public class ClientController {
     }
 
     /**
-     * 配额检查（客户端调用大模型前）.
+     * 调用前检查（V5：只读 used，不预扣）.
      */
-    @PostMapping("/quota/check")
+    @PostMapping("/check")
     public Result<CheckResult> check(
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @Valid @RequestBody QuotaCheckRequest req) {
-        Credential credential = extractCredential(authorization);
-        CheckResult result = quotaService.check(credential.accessKey, credential.secret,
-                req.getModel(), req.getEstimatedTokens());
+        String[] cred = parseCredential(authorization);
+        long estPrompt = nvl(req.getEstimatedPromptTokens());
+        long estCompletion = nvl(req.getEstimatedCompletionTokens());
+        long estTotal = nvl(req.getEstimatedTotalTokens());
+        if (estTotal == 0) {
+            estTotal = nvl(req.getEstimatedTokens());
+        }
+        CheckResult result = quotaService.check(cred[0], cred[1], req.getModel(),
+                estPrompt, estCompletion, estTotal);
         return Result.success(result);
     }
 
     /**
-     * 用量上报（大模型调用完成后）.
+     * 调用后上报（V5：写 usage_log 并累加简单计数器）.
      */
-    @PostMapping("/usage/report")
+    @PostMapping("/report")
     public Result<ReportResult> report(
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @Valid @RequestBody UsageReportRequest req) {
-        Credential credential = extractCredential(authorization);
+        String[] cred = parseCredential(authorization);
         ReportResult result = quotaService.report(
-                req.getTraceId(),
-                credential.accessKey,
-                credential.secret,
-                req.getModel(),
-                req.getPromptTokens(),
-                req.getCompletionTokens(),
-                req.getTotalTokens(),
-                req.getProvider(),
-                req.getStatus(),
-                req.getLatencyMs());
+                req.getTraceId(), cred[0], cred[1], req.getModel(),
+                req.getPromptTokens(), req.getCompletionTokens(), req.getTotalTokens(),
+                req.getProvider(), req.getStatus(), req.getLatencyMs(),
+                nvl(req.getEstimatedPromptTokens()),
+                nvl(req.getEstimatedCompletionTokens()),
+                nvl(req.getEstimatedTotalTokens()));
         return Result.success(result);
     }
 
-    /**
-     * 从 Authorization 头提取 Bearer token 并解析 access_key:secret.
-     */
-    public static Credential extractCredential(String authorization) {
-        String token = extractBearerToken(authorization);
-        if (!StringUtils.hasText(token)) {
-            return new Credential(null, null);
+    private String[] parseCredential(String authorization) {
+        if (authorization != null && authorization.startsWith("Bearer ")) {
+            String token = authorization.substring(7).trim();
+            int idx = token.indexOf(':');
+            if (idx > 0) {
+                return new String[]{token.substring(0, idx), token.substring(idx + 1)};
+            }
         }
-        int idx = token.indexOf(':');
-        if (idx <= 0) {
-            // 兼容旧格式：仅 access key（secret 为空，由服务端双向校验拒绝）
-            return new Credential(token, null);
-        }
-        return new Credential(token.substring(0, idx), token.substring(idx + 1));
+        return new String[]{"", ""};
     }
 
-    /**
-     * 从 Authorization 头提取 Bearer token.
-     */
-    public static String extractBearerToken(String authorization) {
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            return null;
-        }
-        String token = authorization.substring("Bearer ".length()).trim();
-        return token.isEmpty() ? null : token;
-    }
-
-    /**
-     * 客户端凭据：access key + secret.
-     */
-    public static class Credential {
-        public final String accessKey;
-        public final String secret;
-
-        public Credential(String accessKey, String secret) {
-            this.accessKey = accessKey;
-            this.secret = secret;
-        }
+    private long nvl(Long value) {
+        return value == null ? 0 : value;
     }
 }
