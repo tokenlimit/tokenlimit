@@ -35,6 +35,10 @@ export function getProfile(): Promise<LoginResult> {
   return httpGet<LoginResult>('/v1/admin/auth/profile')
 }
 
-export function changePassword(data: ChangePasswordParams): Promise<void> {
-  return httpPost<void>('/v1/admin/auth/change-password', data)
+/**
+ * 修改密码：JWT 无状态，改密后服务端直接签发新令牌返回（mustChangePassword=false），
+ * 前端调用 userStore.apply(result) 替换本地令牌即可即时生效。
+ */
+export function changePassword(data: ChangePasswordParams): Promise<LoginResult> {
+  return httpPost<LoginResult>('/v1/admin/auth/change-password', data)
 }

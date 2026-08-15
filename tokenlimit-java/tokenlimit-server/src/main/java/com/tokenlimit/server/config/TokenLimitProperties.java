@@ -22,14 +22,18 @@ public class TokenLimitProperties {
     /** 管理端登录账号 */
     private Admin admin = new Admin();
 
-    /** 会话有效期（秒），滑动续期，默认 30 分钟 */
-    private long sessionTtlSeconds = 1800;
-    /** 同一账号允许的最大并发会话数，0 表示不限制，默认 1（单会话） */
-    private int maxSessionsPerUser = 1;
+    /** Admin 端 JWT 配置（无状态会话） */
+    private Jwt jwt = new Jwt();
     /** 登录失败达到该次数后锁定 */
     private int loginMaxFails = 5;
     /** 登录失败锁定时间（秒），默认 30 分钟 */
     private long loginLockSeconds = 1800;
+    /** Redis 故障降级（可用性优先）：true 时 Redis 异常按默认值放行，false 时抛出 */
+    private boolean redisFallbackEnabled = true;
+    /** OpenAI Compatible 网关接口级限流 */
+    private RateLimit rateLimit = new RateLimit();
+    /** 上游 HTTP 客户端（连接池由 JVM 统一管理，配置化超时） */
+    private Http http = new Http();
 
     public Admin getAdmin() {
         return admin;
@@ -71,20 +75,29 @@ public class TokenLimitProperties {
         this.maxEstimatedTokens = maxEstimatedTokens;
     }
 
+    /**
+     * @deprecated 自 v1.4 起 Admin 会话迁移为无状态 JWT，会话 TTL 配置不再生效；
+     * 保留仅用于回退参考（旧 Redis 会话代码 {@code AuthSession} 编译依赖）。
+     */
+    @Deprecated
     public long getSessionTtlSeconds() {
-        return sessionTtlSeconds;
+        return 1800;
     }
 
-    public void setSessionTtlSeconds(long sessionTtlSeconds) {
-        this.sessionTtlSeconds = sessionTtlSeconds;
-    }
-
+    /**
+     * @deprecated 同上，旧 Redis 会话代码回退参考保留。
+     */
+    @Deprecated
     public int getMaxSessionsPerUser() {
-        return maxSessionsPerUser;
+        return 1;
     }
 
-    public void setMaxSessionsPerUser(int maxSessionsPerUser) {
-        this.maxSessionsPerUser = maxSessionsPerUser;
+    public Jwt getJwt() {
+        return jwt;
+    }
+
+    public void setJwt(Jwt jwt) {
+        this.jwt = jwt;
     }
 
     public int getLoginMaxFails() {
@@ -101,6 +114,128 @@ public class TokenLimitProperties {
 
     public void setLoginLockSeconds(long loginLockSeconds) {
         this.loginLockSeconds = loginLockSeconds;
+    }
+
+    public boolean isRedisFallbackEnabled() {
+        return redisFallbackEnabled;
+    }
+
+    public void setRedisFallbackEnabled(boolean redisFallbackEnabled) {
+        this.redisFallbackEnabled = redisFallbackEnabled;
+    }
+
+    public RateLimit getRateLimit() {
+        return rateLimit;
+    }
+
+    public void setRateLimit(RateLimit rateLimit) {
+        this.rateLimit = rateLimit;
+    }
+
+    public Http getHttp() {
+        return http;
+    }
+
+    public void setHttp(Http http) {
+        this.http = http;
+    }
+
+    /**
+     * OpenAI Compatible 网关接口级限流（Redis 固定窗口，多实例共享）.
+     */
+    public static class RateLimit {
+        /** 是否启用（默认关闭，开启后按 API Key 限流） */
+        private boolean enabled = false;
+        /** 每 API Key 每秒最大请求数 */
+        private int perKeyQps = 10;
+        /** 窗口时长（秒） */
+        private int windowSeconds = 1;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getPerKeyQps() {
+            return perKeyQps;
+        }
+
+        public void setPerKeyQps(int perKeyQps) {
+            this.perKeyQps = perKeyQps;
+        }
+
+        public int getWindowSeconds() {
+            return windowSeconds;
+        }
+
+        public void setWindowSeconds(int windowSeconds) {
+            this.windowSeconds = windowSeconds;
+        }
+    }
+
+    /**
+     * 上游 HTTP 客户端配置.
+     */
+    public static class Http {
+        /** 连接超时（秒） */
+        private long connectTimeoutSeconds = 15;
+        /** 上游请求超时（秒），流式接口同样适用（超时后中断并结算） */
+        private long requestTimeoutSeconds = 300;
+
+        public long getConnectTimeoutSeconds() {
+            return connectTimeoutSeconds;
+        }
+
+        public void setConnectTimeoutSeconds(long connectTimeoutSeconds) {
+            this.connectTimeoutSeconds = connectTimeoutSeconds;
+        }
+
+        public long getRequestTimeoutSeconds() {
+            return requestTimeoutSeconds;
+        }
+
+        public void setRequestTimeoutSeconds(long requestTimeoutSeconds) {
+            this.requestTimeoutSeconds = requestTimeoutSeconds;
+        }
+    }
+
+    /**
+     * Admin 端 JWT 配置（无状态，无 Redis 会话）.
+     */
+    public static class Jwt {
+        /** HS256 签名密钥，须 ≥ 32 字节；支持 Base64 或纯文本，默认值仅供本地开发 */
+        private String secret = "tokenlimit-dev-only-secret-key-change-me-in-production";
+        /** 签发者 */
+        private String issuer = "tokenlimit-server";
+        /** 令牌有效期（秒），默认 8 小时 */
+        private long expireSeconds = 28800;
+
+        public String getSecret() {
+            return secret;
+        }
+
+        public void setSecret(String secret) {
+            this.secret = secret;
+        }
+
+        public String getIssuer() {
+            return issuer;
+        }
+
+        public void setIssuer(String issuer) {
+            this.issuer = issuer;
+        }
+
+        public long getExpireSeconds() {
+            return expireSeconds;
+        }
+
+        public void setExpireSeconds(long expireSeconds) {
+            this.expireSeconds = expireSeconds;
+        }
     }
 
     /**

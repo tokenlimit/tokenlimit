@@ -1,6 +1,5 @@
 package com.tokenlimit.server.security;
 
-import com.tokenlimit.server.service.AuthSession;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,6 +10,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -18,28 +18,24 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Bearer 会话 token 认证过滤器（无状态）.
- * <p>从 {@code Authorization: Bearer <token>} 提取会话 token，经 {@link AuthSession}（Redis）
- * 校验并取回身份快照，注入 {@code SecurityContext}。角色以 {@code ROLE_} 前缀映射为
+ * JWT 认证过滤器（无状态）.
+ * <p>从 {@code Authorization: Bearer <jwt>} 提取 JWT，经 {@link JwtTokenProvider} 校验并还原
+ * 身份快照（{@link SessionInfo}），注入 {@code SecurityContext}。角色以 {@code ROLE_} 前缀映射为
  * Spring Security authority（如 {@code ROLE_ADMIN}），供 {@code @PreAuthorize} 使用。</p>
  * <p>企业级行为：</p>
  * <ul>
  *   <li>认证失败不在此处抛异常，交由 {@code AuthenticationEntryPoint} 统一返回 401</li>
- *   <li>首次登录强制改密：会话标记 {@code mustChangePassword} 时，除改密/个人信息/登出外
+ *   <li>首次登录强制改密：JWT 携带 {@code mustChangePassword} 标记时，除改密/个人信息/登出外
  *       一律拒绝访问（403）</li>
  *   <li>数据面接口不参与会话认证，由独立过滤器负责：{@code /v1/**} OpenAI Compatible
  *       网关走 {@link OpenAiApiKeyAuthenticationFilter}（API Key 认证）；
  *       {@code /api/v1/client/**} 客户端数据面接口（V4 遗留）走 API Key 自校验</li>
  * </ul>
- *
- * @deprecated 自 v1.4 起 Admin 端会话已由 Redis 会话（AuthSession）迁移为无状态 JWT，
- * 本过滤器不再被 Spring 注册（已移除 {@code @Component}），由 {@link JwtAuthenticationFilter} 取代。
- * 保留文件仅用于回退参考。
  */
-@Deprecated
-public class TokenAuthenticationFilter extends OncePerRequestFilter {
+@Component
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-    private static final Logger log = LoggerFactory.getLogger(TokenAuthenticationFilter.class);
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     /** 强制改密状态下仍允许访问的路径 */
     private static final String[] MUST_CHANGE_PASSWORD_ALLOWED = {
@@ -48,10 +44,10 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
             "/api/v1/admin/auth/logout"
     };
 
-    private final AuthSession authSession;
+    private final JwtTokenProvider jwtTokenProvider;
 
-    public TokenAuthenticationFilter(AuthSession authSession) {
-        this.authSession = authSession;
+    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider) {
+        this.jwtTokenProvider = jwtTokenProvider;
     }
 
     @Override
@@ -68,11 +64,11 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String token = extractBearerToken(request.getHeader("Authorization"));
         if (StringUtils.hasText(token)) {
-            AuthSession.SessionInfo session = authSession.get(token);
+            SessionInfo session = jwtTokenProvider.parse(token);
             if (session != null) {
                 String role = StringUtils.hasText(session.getRole()) ? session.getRole() : "USER";
                 List<GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
-                // principal=身份快照, credentials=原始 token（供登出/改密踢人使用）
+                // principal=身份快照, credentials=原始 JWT（前端随后续请求带回）
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(session, token, authorities);
                 SecurityContextHolder.getContext().setAuthentication(authentication);
@@ -84,7 +80,7 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
                 }
             } else {
                 // 认证失败：不设置 SecurityContext，后续由 401 处理器统一响应（避免信息泄露）
-                log.debug("会话 token 无效，请求路径: {}", request.getRequestURI());
+                log.debug("JWT 无效，请求路径: {}", request.getRequestURI());
             }
         }
         chain.doFilter(request, response);

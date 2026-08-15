@@ -120,14 +120,14 @@ async function handleChangePassword() {
   await changeFormRef.value?.validate()
   changing.value = true
   try {
-    await changePassword({
+    const result = await changePassword({
       oldPassword: changeForm.oldPassword,
       newPassword: changeForm.newPassword
     })
+    // 改密成功：应用服务端签发的新 JWT（mustChangePassword=false），无需重新登录
+    userStore.apply(result)
     ElMessage.success('密码修改成功')
     changeVisible.value = false
-    userStore.mustChangePassword = false
-    localStorage.setItem('mustChangePassword', '0')
     redirectAfterLogin()
   } finally {
     changing.value = false

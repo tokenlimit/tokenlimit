@@ -1,6 +1,5 @@
 package com.tokenlimit.server.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -8,16 +7,16 @@ import com.tokenlimit.common.api.BusinessException;
 import com.tokenlimit.common.api.ErrorCode;
 import com.tokenlimit.common.dto.CheckResult;
 import com.tokenlimit.server.entity.ApiKey;
-import com.tokenlimit.server.entity.ModelPrice;
-import com.tokenlimit.server.entity.TeamModelPolicy;
 import com.tokenlimit.server.enums.LlmProvider;
-import com.tokenlimit.server.repository.mapper.ModelPriceMapper;
-import com.tokenlimit.server.repository.mapper.TeamModelPolicyMapper;
+import com.tokenlimit.server.config.TokenLimitProperties;
 import com.tokenlimit.server.security.OpenAiResponseWriter;
 import com.tokenlimit.server.security.SecurityUtils;
+import com.tokenlimit.server.service.ConfigCacheService;
+import com.tokenlimit.server.service.ModelPolicyService;
 import com.tokenlimit.server.service.ProviderResolverService;
 import com.tokenlimit.server.service.QuotaService;
 import com.tokenlimit.server.service.TokenEstimationService;
+import com.tokenlimit.server.service.redis.RateLimiterService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -39,10 +38,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -66,26 +62,31 @@ public class ProxyGatewayController {
     private final QuotaService quotaService;
     private final ProviderResolverService providerResolverService;
     private final TokenEstimationService tokenEstimationService;
-    private final ModelPriceMapper modelPriceMapper;
-    private final TeamModelPolicyMapper teamModelPolicyMapper;
+    private final ConfigCacheService configCacheService;
+    private final RateLimiterService rateLimiterService;
+    private final ModelPolicyService modelPolicyService;
+    private final TokenLimitProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
     public ProxyGatewayController(QuotaService quotaService,
                                   ProviderResolverService providerResolverService,
                                   TokenEstimationService tokenEstimationService,
-                                  ModelPriceMapper modelPriceMapper,
-                                  TeamModelPolicyMapper teamModelPolicyMapper,
-                                  ObjectMapper objectMapper) {
+                                  ConfigCacheService configCacheService,
+                                  RateLimiterService rateLimiterService,
+                                  ModelPolicyService modelPolicyService,
+                                  TokenLimitProperties properties,
+                                  ObjectMapper objectMapper,
+                                  HttpClient upstreamHttpClient) {
         this.quotaService = quotaService;
         this.providerResolverService = providerResolverService;
         this.tokenEstimationService = tokenEstimationService;
-        this.modelPriceMapper = modelPriceMapper;
-        this.teamModelPolicyMapper = teamModelPolicyMapper;
+        this.configCacheService = configCacheService;
+        this.rateLimiterService = rateLimiterService;
+        this.modelPolicyService = modelPolicyService;
+        this.properties = properties;
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .build();
+        this.httpClient = upstreamHttpClient;
     }
 
     /**
@@ -102,7 +103,7 @@ public class ProxyGatewayController {
                 return;
             }
 
-            List<String> models = allowedModels(apiKey.getTeamCode());
+            List<String> models = modelPolicyService.allowedModels(apiKey.getTeamCode());
             ObjectNode root = objectMapper.createObjectNode();
             root.put("object", "list");
             var data = root.putArray("data");
@@ -155,6 +156,17 @@ public class ProxyGatewayController {
             return;
         }
 
+        // 1.5 接口级限流（按 API Key 维度，配置开关控制）
+        if (rateLimiterService.isEnabled()) {
+            int limit = properties.getRateLimit().getPerKeyQps();
+            long windowMillis = properties.getRateLimit().getWindowSeconds() * 1000L;
+            if (!rateLimiterService.tryAcquire(apiKey.getKeyId(), limit, windowMillis)) {
+                writeOpenAiError(response, 429, "RATE_LIMIT_EXCEEDED",
+                        "请求过于频繁，请稍后重试");
+                return;
+            }
+        }
+
         JsonNode requestJson;
         try {
             requestJson = objectMapper.readTree(body);
@@ -171,7 +183,7 @@ public class ProxyGatewayController {
 
         // 2. Team Model Policy 模型策略校验（MODEL_NOT_ALLOWED）
         try {
-            assertModelAllowed(apiKey.getTeamCode(), model);
+            modelPolicyService.assertModelAllowed(apiKey.getTeamCode(), model);
         } catch (BusinessException e) {
             writeOpenAiError(response, e.getCode(), e.getMessage());
             return;
@@ -216,7 +228,7 @@ public class ProxyGatewayController {
         String upstreamUrl = buildUpstreamUrl(resolved.getApiBaseUrl(), resolved.getProvider(), upstreamPath);
         HttpRequest upstreamRequest = HttpRequest.newBuilder()
                 .uri(URI.create(upstreamUrl))
-                .timeout(Duration.ofSeconds(300))
+                .timeout(Duration.ofSeconds(properties.getHttp().getRequestTimeoutSeconds()))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + resolved.getApiKey())
                 .POST(HttpRequest.BodyPublishers.ofString(upstreamBody, StandardCharsets.UTF_8))
@@ -381,56 +393,6 @@ public class ProxyGatewayController {
         } catch (Exception e) {
             log.error("用量上报失败 traceId={}", traceId, e);
         }
-    }
-
-    /**
-     * Team Model Policy 模型策略校验：Team 启用模型白名单时必须命中，否则 MODEL_NOT_ALLOWED.
-     */
-    private void assertModelAllowed(String teamCode, String model) {
-        List<TeamModelPolicy> policies = teamModelPolicyMapper.selectList(
-                new LambdaQueryWrapper<TeamModelPolicy>()
-                        .eq(TeamModelPolicy::getTeamCode, teamCode)
-                        .eq(TeamModelPolicy::getEnabled, true));
-        if (policies.isEmpty()) {
-            return; // 未启用模型白名单
-        }
-        boolean allowed = policies.stream().anyMatch(p ->
-                model.equals(p.getModel()) || "*".equals(p.getModel()));
-        if (!allowed) {
-            throw new BusinessException(ErrorCode.MODEL_NOT_ALLOWED);
-        }
-    }
-
-    /**
-     * Team 可用模型列表：启用白名单时返回命中模型（* 展开），否则返回全部已启用模型.
-     */
-    private List<String> allowedModels(String teamCode) {
-        List<TeamModelPolicy> policies = teamModelPolicyMapper.selectList(
-                new LambdaQueryWrapper<TeamModelPolicy>()
-                        .eq(TeamModelPolicy::getTeamCode, teamCode)
-                        .eq(TeamModelPolicy::getEnabled, true));
-        List<ModelPrice> prices = modelPriceMapper.selectList(
-                new LambdaQueryWrapper<ModelPrice>().eq(ModelPrice::getStatus, "ENABLED"));
-        if (policies.isEmpty()) {
-            List<String> all = new ArrayList<>();
-            for (ModelPrice price : prices) {
-                all.add(price.getModel());
-            }
-            return all;
-        }
-        Set<String> allModels = new LinkedHashSet<>();
-        for (ModelPrice price : prices) {
-            allModels.add(price.getModel());
-        }
-        Set<String> allowed = new LinkedHashSet<>();
-        for (TeamModelPolicy policy : policies) {
-            if ("*".equals(policy.getModel())) {
-                allowed.addAll(allModels);
-            } else if (StringUtils.hasText(policy.getModel())) {
-                allowed.add(policy.getModel());
-            }
-        }
-        return new ArrayList<>(allowed);
     }
 
     private String injectStreamOptions(String body) throws IOException {

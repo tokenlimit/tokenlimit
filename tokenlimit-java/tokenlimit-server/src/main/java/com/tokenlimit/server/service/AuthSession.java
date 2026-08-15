@@ -35,7 +35,12 @@ import java.util.Set;
  *   <li>{@code {prefix}:user-sessions:{username}} — 用户活跃会话索引（ZSet，score=登录时间）</li>
  *   <li>{@code {prefix}:login-fail:{username}} — 登录失败计数（带 TTL 自动复位）</li>
  * </ul>
+ *
+ * @deprecated 自 v1.4 起管理端会话由 Redis 会话迁移为无状态 JWT（{@link JwtTokenProvider}），
+ * 本类不再被任何运行时代码引用（登录防爆破逻辑已拆分为 {@link LoginAttemptService}）。
+ * 保留仅用于回退参考，如需恢复 Redis 会话请还原 v1.3 代码。
  */
+@Deprecated
 @Service
 public class AuthSession {
 

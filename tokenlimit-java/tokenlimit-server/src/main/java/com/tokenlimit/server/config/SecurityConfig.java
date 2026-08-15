@@ -3,8 +3,8 @@ package com.tokenlimit.server.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tokenlimit.common.api.ErrorCode;
 import com.tokenlimit.common.api.Result;
+import com.tokenlimit.server.security.JwtAuthenticationFilter;
 import com.tokenlimit.server.security.OpenAiApiKeyAuthenticationFilter;
-import com.tokenlimit.server.security.TokenAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -25,7 +25,7 @@ import java.nio.charset.StandardCharsets;
  * <p>无状态 API：不启用 Servlet Session，不启用 CSRF（前后端分离 + Bearer token），
  * 认证分为两条互不干扰的链路：</p>
  * <ul>
- *   <li>{@link TokenAuthenticationFilter}：Web 管理端会话 token 认证（{@code /api/**}）</li>
+ *   <li>{@link JwtAuthenticationFilter}：Web 管理端 JWT 认证（{@code /api/**}，无状态，无 Redis 会话）</li>
  *   <li>{@link OpenAiApiKeyAuthenticationFilter}：OpenAI Compatible API Key 认证（{@code /v1/**}，
  *       失败直接返回 OpenAI 兼容错误）</li>
  * </ul>
@@ -37,14 +37,14 @@ import java.nio.charset.StandardCharsets;
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    private final TokenAuthenticationFilter tokenAuthenticationFilter;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final OpenAiApiKeyAuthenticationFilter openAiApiKeyAuthenticationFilter;
     private final ObjectMapper objectMapper;
 
-    public SecurityConfig(TokenAuthenticationFilter tokenAuthenticationFilter,
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
                           OpenAiApiKeyAuthenticationFilter openAiApiKeyAuthenticationFilter,
                           ObjectMapper objectMapper) {
-        this.tokenAuthenticationFilter = tokenAuthenticationFilter;
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.openAiApiKeyAuthenticationFilter = openAiApiKeyAuthenticationFilter;
         this.objectMapper = objectMapper;
     }
@@ -62,8 +62,10 @@ public class SecurityConfig {
                         // 公开端点：健康检查 / 登录 / 客户端数据面接口(API Key 自校验) / OpenAI Compatible Proxy 网关 / 错误转发
                         .requestMatchers("/api/v1/health", "/api/v1/admin/auth/login",
                                 "/api/v1/client/**", "/v1/**", "/error").permitAll()
-                        // 其余全部要求认证（未认证 → 401）
-                        .anyRequest().authenticated())
+                        // 管理端数据接口全部要求认证（未认证 → 401）
+                        .requestMatchers("/api/**").authenticated()
+                        // 其余放行：前端静态资源（index.html / assets/**）与 SPA 路由
+                        .anyRequest().permitAll())
                 .exceptionHandling(eh -> eh
                         // 未认证 → 401
                         .authenticationEntryPoint((request, response, ex) ->
@@ -73,7 +75,7 @@ public class SecurityConfig {
                         .accessDeniedHandler((request, response, ex) ->
                                 writeJson(response, HttpServletResponse.SC_FORBIDDEN,
                                         Result.failure(ErrorCode.UNAUTHORIZED.getCode(), "无权访问该资源"))))
-                .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(openAiApiKeyAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
@@ -95,9 +97,9 @@ public class SecurityConfig {
      * 避免被 Servlet 容器重复执行导致双重认证。
      */
     @Bean
-    public FilterRegistrationBean<TokenAuthenticationFilter> tokenAuthenticationFilterRegistration(
-            TokenAuthenticationFilter filter) {
-        FilterRegistrationBean<TokenAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
+    public FilterRegistrationBean<JwtAuthenticationFilter> jwtAuthenticationFilterRegistration(
+            JwtAuthenticationFilter filter) {
+        FilterRegistrationBean<JwtAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setEnabled(false);
         return registration;
     }
@@ -114,7 +116,7 @@ public class SecurityConfig {
     }
 
     /**
-     * 禁用 Spring Boot 自动生成的随机默认用户（登录完全走自研会话体系，不使用框架的 UserDetailsService）.
+     * 禁用 Spring Boot 自动生成的随机默认用户（登录完全走自研 JWT 体系，不使用框架的 UserDetailsService）.
      */
     @Bean
     public org.springframework.security.core.userdetails.UserDetailsService userDetailsService() {

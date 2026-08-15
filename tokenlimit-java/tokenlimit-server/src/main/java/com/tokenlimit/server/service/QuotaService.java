@@ -58,10 +58,14 @@ public class QuotaService {
     private final UserMapper userMapper;
     private final QuotaRedisService quotaRedisService;
     private final TokenLimitProperties properties;
+    private final UsageLogAsyncService usageLogAsyncService;
+    private final ApiKeyMetricsService apiKeyMetricsService;
 
     public QuotaService(QuotaRuleMapper quotaRuleMapper, UsageLogMapper usageLogMapper,
                         ApiKeyMapper apiKeyMapper, TeamMapper teamMapper, UserMapper userMapper,
-                        QuotaRedisService quotaRedisService, TokenLimitProperties properties) {
+                        QuotaRedisService quotaRedisService, TokenLimitProperties properties,
+                        UsageLogAsyncService usageLogAsyncService,
+                        ApiKeyMetricsService apiKeyMetricsService) {
         this.quotaRuleMapper = quotaRuleMapper;
         this.usageLogMapper = usageLogMapper;
         this.apiKeyMapper = apiKeyMapper;
@@ -69,6 +73,8 @@ public class QuotaService {
         this.userMapper = userMapper;
         this.quotaRedisService = quotaRedisService;
         this.properties = properties;
+        this.usageLogAsyncService = usageLogAsyncService;
+        this.apiKeyMetricsService = apiKeyMetricsService;
     }
 
     /**
@@ -165,10 +171,9 @@ public class QuotaService {
 
     /**
      * 用量上报（大模型调用完成后）.
-     * <p>V5：先写 usage_log（事实来源），再累加 Redis used（实时缓存）；
+     * <p>V5：异步写 usage_log（事实来源），同步累加 Redis used（实时缓存）；
      * usage_source 区分 PROVIDER / ESTIMATED，并对预估偏差做异常检测。</p>
      */
-    @Transactional
     public ReportResult report(String traceId, String accessKey, String secret, String model,
                                long promptTokens, long completionTokens, long totalTokens,
                                String provider, String status, Long latencyMs,
@@ -244,7 +249,8 @@ public class QuotaService {
         usageLog.setStatus(usageStatus);
         usageLog.setAnomalyDetected(anomaly);
         usageLog.setAnomalyDetail(anomalyDetail);
-        usageLogMapper.insert(usageLog);
+        // 异步写入 usage_log（避免阻塞网关请求线程）
+        usageLogAsyncService.saveUsageLog(usageLog);
 
         // 后更新 Redis（简单计数器：累加实际用量）
         LocalDateTime now = LocalDateTime.now();
@@ -293,11 +299,8 @@ public class QuotaService {
         if (!StringUtils.hasText(apiKey.getUserCode())) {
             throw new BusinessException(ErrorCode.INVALID_API_KEY);
         }
-        // 更新最后使用时间
-        ApiKey update = new ApiKey();
-        update.setId(apiKey.getId());
-        update.setLastUsedAt(LocalDateTime.now());
-        apiKeyMapper.updateById(update);
+        // 异步更新最后使用时间（降低 MySQL 写压力）
+        apiKeyMetricsService.updateLastUsedAt(apiKey.getId());
         return apiKey;
     }
 
@@ -317,6 +320,8 @@ public class QuotaService {
 
     /**
      * 简单计数器检查：任一规则 used ≥ limit 即视为超限，返回拒绝说明；全部通过返回 null.
+     * <p>Redis 异常时根据 {@code tokenlimit.redis-fallback-enabled} 配置决定降级策略：
+     * 启用时放行（可用性优先），禁用时抛出异常（一致性优先）。</p>
      */
     private String checkAll(List<QuotaRule> rules, LocalDateTime now) {
         if (rules.isEmpty()) {
@@ -325,8 +330,18 @@ public class QuotaService {
         for (QuotaRule rule : rules) {
             Period period = Period.valueOf(rule.getPeriod());
             long limit = rule.getLimitValue().longValue();
-            long used = quotaRedisService.readUsed(
-                    rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now);
+            long used;
+            try {
+                used = quotaRedisService.readUsed(
+                        rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now);
+            } catch (Exception e) {
+                log.warn("Redis 配额读取失败，降级策略: {}",
+                        properties.isRedisFallbackEnabled() ? "放行" : "拒绝", e);
+                if (properties.isRedisFallbackEnabled()) {
+                    continue; // Redis 故障时放行（可用性优先）
+                }
+                throw e; // Redis 故障时拒绝（一致性优先）
+            }
             if (used >= limit) {
                 return "配额超限: " + rule.getTargetType() + "/" + rule.getTargetCode()
                         + " " + period + " 已用 " + used + " 上限 " + limit;
@@ -338,6 +353,7 @@ public class QuotaService {
     /**
      * report 阶段累加：按规则 limitType 累加（TOKEN 累加 token 数，REQUEST_COUNT 累加 1）.
      * <p>consumeFrom=PERSONAL 时同时累加 Team 与 User；=TEAM 时仅累加 Team。</p>
+     * <p>Redis 异常时记录日志但不中断流程（MySQL 是事实来源，Redis 可后续恢复）。</p>
      */
     private void accumulate(List<QuotaRule> rules, LocalDateTime now,
                             long statTokens, String consumeFrom) {
@@ -349,8 +365,14 @@ public class QuotaService {
             }
             long amount = LimitType.REQUEST_COUNT.name().equals(rule.getLimitType()) ? 1 : statTokens;
             Period period = Period.valueOf(rule.getPeriod());
-            quotaRedisService.addUsed(rule.getTargetType(), rule.getTargetCode(),
-                    rule.getLimitType(), period, now, amount);
+            try {
+                quotaRedisService.addUsed(rule.getTargetType(), rule.getTargetCode(),
+                        rule.getLimitType(), period, now, amount);
+            } catch (Exception e) {
+                log.error("Redis 配额累加失败 rule={}:{}, amount={}",
+                        rule.getTargetType(), rule.getTargetCode(), amount, e);
+                // Redis 故障时不中断流程，MySQL 已持久化，Redis 可后续从 MySQL 恢复
+            }
         }
     }
 

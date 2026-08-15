@@ -102,32 +102,50 @@ public class QuotaRedisService {
     /**
      * 保存 check 上下文：check 放行时记录 traceId → 上下文信息，report 时读取.
      * <p>仅用于 traceId 关联（teamCode/userCode/consumeFrom/预估值/规则），不涉及任何扣减。</p>
+     * <p>Redis 异常时记录日志但不中断流程（check 已放行，report 时若上下文缺失会失败）。</p>
      *
      * @param traceId 追踪 ID
      * @param context 上下文（管道符分隔）
      */
     public void saveCheckContext(String traceId, String context) {
-        String key = checkContextKey(traceId);
-        redisTemplate.opsForValue().set(key, context,
-                Duration.ofSeconds(properties.getCheckContextTtlSeconds()));
+        try {
+            String key = checkContextKey(traceId);
+            redisTemplate.opsForValue().set(key, context,
+                    Duration.ofSeconds(properties.getCheckContextTtlSeconds()));
+        } catch (Exception e) {
+            log.error("Redis 保存 check 上下文失败, traceId={}", traceId, e);
+            // Redis 故障时不中断流程，report 时会因上下文缺失而失败
+        }
     }
 
     /**
      * 读取 check 上下文.
+     * <p>Redis 异常时返回 null，导致 report 失败（TRACE_NOT_FOUND）。</p>
      */
     public String getCheckContext(String traceId) {
         if (traceId == null || traceId.isBlank()) {
             return null;
         }
-        return redisTemplate.opsForValue().get(checkContextKey(traceId));
+        try {
+            return redisTemplate.opsForValue().get(checkContextKey(traceId));
+        } catch (Exception e) {
+            log.error("Redis 读取 check 上下文失败, traceId={}", traceId, e);
+            return null; // Redis 故障时返回 null，report 会失败
+        }
     }
 
     /**
      * 删除 check 上下文（report 完成后清理）.
+     * <p>Redis 异常时记录日志但不影响流程。</p>
      */
     public void deleteCheckContext(String traceId) {
         if (traceId != null && !traceId.isBlank()) {
-            redisTemplate.delete(checkContextKey(traceId));
+            try {
+                redisTemplate.delete(checkContextKey(traceId));
+            } catch (Exception e) {
+                log.error("Redis 删除 check 上下文失败, traceId={}", traceId, e);
+                // 清理失败不影响主流程
+            }
         }
     }
 

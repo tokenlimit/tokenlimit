@@ -15,7 +15,7 @@ import com.tokenlimit.server.repository.mapper.TeamMapper;
 import com.tokenlimit.server.repository.mapper.UsageLogMapper;
 import com.tokenlimit.server.repository.mapper.UserMapper;
 import com.tokenlimit.server.security.SecurityUtils;
-import com.tokenlimit.server.service.AuthSession;
+import com.tokenlimit.server.security.SessionInfo;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -222,7 +222,7 @@ public class MyController {
     }
 
     private User requireUser() {
-        AuthSession.SessionInfo session = SecurityUtils.requireSession();
+        SessionInfo session = SecurityUtils.requireSession();
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getUsername, session.getUsername())
                 .last("limit 1"));

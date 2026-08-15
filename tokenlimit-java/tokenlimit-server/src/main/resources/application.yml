@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: tokenlimit-server
+  # v1.4：虚拟线程（JDK21 平台线程 → 虚拟线程，高并发 IO 密集场景吞吐提升）
+  threads:
+    virtual:
+      enabled: true
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://127.0.0.1:3306/tokenlimit?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai
@@ -42,14 +46,18 @@ tokenlimit:
   reserve-ttl-seconds: 3600
   # 单次调用预估 token 上限，超出则拒绝（防止异常大额预扣）
   max-estimated-tokens: 1000000
-  # 会话有效期（秒），每次访问自动滑动续期
-  session-ttl-seconds: 1800
-  # 同一账号最大并发会话数，0 表示不限制
-  max-sessions-per-user: 1
   # 登录连续失败达到该次数后锁定
   login-max-fails: 5
   # 登录锁定时间（秒）
   login-lock-seconds: 1800
+  # Admin 端 JWT 配置（无状态会话）
+  jwt:
+    # HS256 签名密钥（≥32 字节；支持 Base64 或纯文本），生产环境务必替换
+    secret: tokenlimit-dev-only-secret-key-change-me-in-production
+    # 签发者
+    issuer: tokenlimit-server
+    # 令牌有效期（秒），默认 8 小时
+    expire-seconds: 28800
   # 管理端登录（MVP 阶段静态账号）
   admin:
     username: admin
