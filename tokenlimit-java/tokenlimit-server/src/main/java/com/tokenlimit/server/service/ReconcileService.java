@@ -178,10 +178,10 @@ public class ReconcileService {
             // 5. 更新任务统计
             task.setTotalItems(totalItems);
             task.setDiffItems(diffItems);
-            task.setDisputeItems((int) itemMapper.selectCount(
+            task.setDisputeItems(itemMapper.selectCount(
                     new LambdaQueryWrapper<ReconcileItem>()
                             .eq(ReconcileItem::getTaskId, task.getId())
-                            .eq(ReconcileItem::getStatus, "DISPUTED")));
+                            .eq(ReconcileItem::getStatus, "DISPUTED")).intValue());
             task.setAvgDiffRate(totalItems == 0 ? BigDecimal.ZERO
                     : rateSum.divide(BigDecimal.valueOf(totalItems), 4, RoundingMode.HALF_UP));
             task.setStatus("COMPLETED");

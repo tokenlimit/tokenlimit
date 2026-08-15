@@ -496,25 +496,29 @@ V2.0  供应商账单导入、账单对账、异常计费分析、企业 AI FinO
 
 ## 十一、项目状态
 
-### 已完成（V5.0 核心改造）
+### 已完成（V5.0 全部落地）
 
 - [x] 产品定位与核心概念设计（PRD V5.0）；
-- [x] Java Maven 多模块工程（Java 21 / Spring Boot 3 / MyBatis-Plus / Redis / jtokkit）；
+- [x] Java Maven 多模块工程（Java 21 / Spring Boot 3 / MyBatis-Plus / Redis / jtokkit），`mvn compile` 通过；
 - [x] 简单计数器配额模型（check 只读 Redis 不预扣，report 累加真实值，check/report 上下文通过 traceId 关联）；
-- [x] OpenAI Compatible Proxy（`/v1/chat/completions` / `/v1/models` / `/v1/embeddings`，流式透传）；
-- [x] API Key 鉴权与状态管理（ENABLED / DISABLED / EXPIRED / REVOKED）；
+- [x] OpenAI Compatible Proxy（`/v1/chat/completions` / `/v1/models` / `/v1/embeddings`，流式透传）：
+  - API Key 鉴权（INVALID_API_KEY / API_KEY_DISABLED / API_KEY_EXPIRED）；
+  - Team Model Policy 模型策略校验（MODEL_NOT_ALLOWED，`/v1/models` 按 Team 返回可用模型）；
+  - jtokkit 预估 → 配额 check → Provider 凭证解析 → 上游转发；
+  - report 结算：厂商 usage 优先，缺失/中断按预估结算（usage_source + 异常检测）；
+  - OpenAI 兼容错误响应（429 TEAM/USER_QUOTA_EXCEEDED、401/403 语义化 code 等）；
+- [x] API Key 生命周期管理（ENABLED / DISABLED / EXPIRED / REVOKED）；
 - [x] Provider Credential 托管与 Team Model Policy；
 - [x] Token 预估（jtokkit）与异常检测（偏差 > 阈值标记 anomaly）；
 - [x] 3 角色登录认证（ADMIN / TEAM_ADMIN / USER）；
 - [x] 管理端 REST 接口（Team/User/ApiKey/QuotaRule/Provider/ModelPolicy/Usage/Audit/Dashboard/Settings/Meta/Auth）；
 - [x] 个人中心（概览 / 额度 / 用量 / 流水 / 账单 / API Key）；
-- [x] Console 前端（Vue 3 + Element Plus）。
+- [x] Console 前端（Vue 3 + Element Plus）；
+- [x] `deploy/mysql/init/init.sql` 同步 V5 结构（tl_quota_rule 去 rule_code/priority 加 status；tl_usage_log 增加 estimated_* / usage_source / anomaly_* 列；设置项适配简单计数器模型）。
 
-### 进行中
+### 后续联调（需启动 MySQL / Redis / Server）
 
-- [ ] 网关控制器（ProxyGatewayController）V5 流程收尾与联调验证；
-- [ ] 管理端控制器与 `init.sql` 的 V5 结构同步（tl_quota_rule 去 rule_code/priority/enabled 加 status，tl_usage_log 增加 estimated_* / usage_source / anomaly_* 列）；
-- [ ] `mvn compile` 编译验证与前后端联调（需启动 MySQL / Redis / Server）。
+- [ ] 启动 MySQL / Redis 执行 `init.sql`，启动 `tokenlimit-server` 后进行前后端联调验证。
 
 ---
 

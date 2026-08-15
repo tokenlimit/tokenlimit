@@ -72,6 +72,16 @@ public class QuotaService {
     }
 
     /**
+     * 认证 API Key（网关入口）：双向校验 accessKey + secret，返回有效 ApiKey.
+     * <p>供 ProxyGateway 在配额检查前获取 Team / User 上下文（模型策略校验、凭证解析）。</p>
+     *
+     * @throws BusinessException INVALID_API_KEY / API_KEY_DISABLED / API_KEY_EXPIRED
+     */
+    public ApiKey authenticate(String accessKey, String secret) {
+        return resolveApiKey(accessKey, secret);
+    }
+
+    /**
      * 配额检查（调用大模型前）.
      * <p>V5：读取当前 used，used ≥ limit 直接拦截；不预扣、不冻结。</p>
      *

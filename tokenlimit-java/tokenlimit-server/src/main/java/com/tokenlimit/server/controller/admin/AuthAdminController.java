@@ -52,7 +52,7 @@ public class AuthAdminController {
     public Result<Map<String, Object>> login(@Valid @RequestBody LoginRequest req) {
         // 登录防爆破：Redis 计数锁定
         if (authSession.isLoginLocked(req.getUsername())) {
-            writeAudit(null, null, null, req.getUsername(), "LOGIN_FAILED", "USER",
+            writeAudit(null, null, req.getUsername(), "LOGIN_FAILED", "USER",
                     req.getUsername(), "{\"reason\":\"登录已锁定\"}", "FAILED", null);
             throw new BusinessException(ErrorCode.UNAUTHORIZED.getCode(),
                     "登录失败次数过多，请 " + (authSession.getLoginLockSeconds() / 60) + " 分钟后重试");
@@ -255,7 +255,11 @@ public class AuthAdminController {
      * 从 Authorization 头提取 Bearer token（供 UserAdminController 等复用）.
      */
     public static String extractBearerToken(String authorization) {
-        return com.tokenlimit.server.controller.ClientController.extractBearerToken(authorization);
+        if (authorization != null && authorization.startsWith("Bearer ")) {
+            String token = authorization.substring(7).trim();
+            return token.isEmpty() ? null : token;
+        }
+        return null;
     }
 
     public static String hashPassword(String password) {

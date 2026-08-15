@@ -19,7 +19,9 @@ public enum ErrorCode {
     /** 配额超限（旧客户端码，保留兼容） */
     QUOTA_EXCEEDED(4029, "配额超限", 429),
     /** Trace 不存在 */
-    TRACE_NOT_FOUND(4030, "Trace 不存在", 400),
+    TRACE_NOT_FOUND(4031, "Trace 不存在", 400),
+    /** 资源不存在 */
+    NOT_FOUND(4040, "资源不存在", 404),
     /** 服务内部错误 */
     INTERNAL_ERROR(5000, "服务内部错误", 500),
 

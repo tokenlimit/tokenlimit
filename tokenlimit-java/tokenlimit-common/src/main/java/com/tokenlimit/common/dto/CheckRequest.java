@@ -17,7 +17,9 @@ public class CheckRequest implements Serializable {
     private long estimatedPromptTokens;
     /** 预估 Completion Token（V5.0） */
     private long estimatedCompletionTokens;
-    /** 预估 Total Token（V5.0），兼容旧字段 */
+    /** 预估 Total Token（V5.0） */
+    private long estimatedTotalTokens;
+    /** 预估 Total Token 兼容别名（等价于 estimatedTotalTokens） */
     private long estimatedTokens;
 
     public CheckRequest() {

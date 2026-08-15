@@ -19,8 +19,8 @@ public class UsageLog extends BaseEntity {
     /** 用户编码 */
     private String userCode;
 
-    /** API Key ID */
-    private Long apiKeyId;
+    /** API Key 标识（tl_api_key.key_id） */
+    private String apiKeyId;
 
     /** 模型标识 */
     private String model;
@@ -88,11 +88,11 @@ public class UsageLog extends BaseEntity {
         this.userCode = userCode;
     }
 
-    public Long getApiKeyId() {
+    public String getApiKeyId() {
         return apiKeyId;
     }
 
-    public void setApiKeyId(Long apiKeyId) {
+    public void setApiKeyId(String apiKeyId) {
         this.apiKeyId = apiKeyId;
     }
 

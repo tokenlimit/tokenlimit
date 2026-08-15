@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tokenlimit.common.api.Result;
-import org.springframework.util.StringUtils;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -49,8 +48,8 @@ public class HttpTransport {
                 .uri(URI.create(url))
                 .timeout(Duration.ofMillis(config.getReadTimeoutMs()))
                 .header("Content-Type", "application/json");
-        if (StringUtils.hasText(config.getApiKey())) {
-            String credential = StringUtils.hasText(config.getSecret())
+        if (hasText(config.getApiKey())) {
+            String credential = hasText(config.getSecret())
                     ? config.getApiKey() + ":" + config.getSecret()
                     : config.getApiKey();
             builder.header("Authorization", "Bearer " + credential);
@@ -87,5 +86,9 @@ public class HttpTransport {
         } catch (Exception e) {
             throw new TokenLimitException("解析响应失败: " + responseBody, e);
         }
+    }
+
+    private static boolean hasText(String s) {
+        return s != null && !s.trim().isEmpty();
     }
 }
