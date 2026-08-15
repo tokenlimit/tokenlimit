@@ -146,9 +146,13 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="供应商" prop="provider">
-              <el-select v-model="credForm.provider" allow-create filterable style="width: 100%">
-                <el-option v-for="p in providerOptions" :key="p.provider" :label="p.providerName" :value="p.provider" />
+              <el-select v-model="credForm.provider" allow-create filterable style="width: 100%" @change="onProviderChange">
+                <el-option v-for="t in providerTemplates" :key="t.provider" :label="t.providerName" :value="t.provider">
+                  <span>{{ t.providerName }}</span>
+                  <span class="option-code">{{ t.provider }}</span>
+                </el-option>
               </el-select>
+              <div v-if="providerTemplateTip" class="form-tip" style="margin-top: 4px">{{ providerTemplateTip }}</div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -231,11 +235,13 @@ import {
   listPolicyCredentials,
   listProviderCredentials,
   listProviderOptions,
+  listProviderTemplates,
   toggleProviderCredential,
   updateModelPolicy,
   updateProviderCredential,
   type ProviderCredential,
   type ProviderOption,
+  type ProviderTemplate,
   type TeamModelPolicy
 } from '@/api/provider'
 import { listTeams, type Team } from '@/api/team'
@@ -248,6 +254,8 @@ const credSaving = ref(false)
 const credList = ref<ProviderCredential[]>([])
 const credTotal = ref(0)
 const providerOptions = ref<ProviderOption[]>([])
+const providerTemplates = ref<ProviderTemplate[]>([])
+const providerTemplateTip = ref('')
 const teams = ref<Team[]>([])
 const credDialogVisible = ref(false)
 const credFormRef = ref<FormInstance>()
@@ -302,7 +310,27 @@ function openCredDialog(row?: ProviderCredential) {
     remark: ''
   })
   if (row) Object.assign(credForm, row, { apiKey: '' })
+  providerTemplateTip.value = ''
   credDialogVisible.value = true
+}
+
+/** 选择内置供应商模板后，自动填充 Base URL 并提示注意事项 */
+function onProviderChange(val: string) {
+  const tpl = providerTemplates.value.find((t) => t.provider === val)
+  if (!tpl) {
+    providerTemplateTip.value = ''
+    return
+  }
+  if (tpl.baseUrl) {
+    credForm.apiBaseUrl = tpl.baseUrl
+  }
+  if (tpl.requiresEndpoint) {
+    providerTemplateTip.value = `${tpl.providerName} 需要在 Base URL 末尾拼接控制台创建的 Endpoint ID（如 /api/v3/ep-xxx）`
+  } else if (!tpl.openAiCompatible) {
+    providerTemplateTip.value = `${tpl.providerName} 原生 API 不兼容 OpenAI 协议，需协议转换 Adapter，MVP 阶段暂不支持直接透传`
+  } else {
+    providerTemplateTip.value = ''
+  }
 }
 
 async function saveCred() {
@@ -438,6 +466,7 @@ async function loadTeams() {
 
 onMounted(async () => {
   providerOptions.value = await listProviderOptions()
+  providerTemplates.value = await listProviderTemplates()
   loadTeams()
   loadCreds()
   loadPolicies()
@@ -481,6 +510,12 @@ onMounted(async () => {
 
 .form-tip {
   width: 100%;
+  color: #909399;
+  font-size: 12px;
+}
+
+.option-code {
+  float: right;
   color: #909399;
   font-size: 12px;
 }

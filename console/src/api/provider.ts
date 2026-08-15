@@ -61,6 +61,19 @@ export interface ProviderOption {
   providerName: string
 }
 
+/** 内置供应商模板（PRD V5.0 §9.7） */
+export interface ProviderTemplate {
+  provider: string
+  providerName: string
+  baseUrl?: string
+  /** 是否 OpenAI 协议兼容可直传 */
+  openAiCompatible?: boolean
+  /** 是否需要拼接 Endpoint ID（如火山方舟） */
+  requiresEndpoint?: boolean
+  /** 是否可直接透传模板（兼容 且 无需拼接 Endpoint） */
+  directPassthrough?: boolean
+}
+
 export function listProviderCredentials(params?: {
   page?: number
   size?: number
@@ -95,6 +108,11 @@ export function deleteProviderCredential(credentialCode: string): Promise<void> 
 
 export function listProviderOptions(): Promise<ProviderOption[]> {
   return httpGet<ProviderOption[]>('/v1/admin/providers/providers')
+}
+
+/** 内置供应商模板下拉（选择后自动填充 Base URL） */
+export function listProviderTemplates(): Promise<ProviderTemplate[]> {
+  return httpGet<ProviderTemplate[]>('/v1/admin/providers/templates')
 }
 
 export function listModelPolicies(params?: {

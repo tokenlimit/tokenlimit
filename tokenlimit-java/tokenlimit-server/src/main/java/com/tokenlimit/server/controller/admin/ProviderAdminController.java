@@ -10,6 +10,7 @@ import com.tokenlimit.server.entity.ProviderCredential;
 import com.tokenlimit.server.entity.Team;
 import com.tokenlimit.server.entity.TeamModelPolicy;
 import com.tokenlimit.server.entity.User;
+import com.tokenlimit.server.enums.LlmProvider;
 import com.tokenlimit.server.repository.mapper.ProviderCredentialMapper;
 import com.tokenlimit.server.repository.mapper.TeamModelPolicyMapper;
 import com.tokenlimit.server.security.SecurityUtils;
@@ -179,6 +180,24 @@ public class ProviderAdminController {
         providerCredentialMapper.delete(new LambdaQueryWrapper<ProviderCredential>()
                 .eq(ProviderCredential::getCredentialCode, credentialCode));
         return Result.success(null);
+    }
+
+    /**
+     * 内置供应商模板下拉（PRD V5.0 §9.7）.
+     * <p>返回已知大模型厂商的 OpenAI 兼容 Base URL 模板，控制台选择后自动填充；自定义厂商不在此列表。</p>
+     */
+    @GetMapping("/templates")
+    public Result<List<Map<String, Object>>> templates() {
+        return Result.success(LlmProvider.templates().stream().map(p -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("provider", p.getCode());
+            m.put("providerName", p.getDisplayName());
+            m.put("baseUrl", p.getDefaultBaseUrl());
+            m.put("openAiCompatible", p.isOpenAiCompatible());
+            m.put("requiresEndpoint", p.isRequiresEndpoint());
+            m.put("directPassthrough", p.isDirectPassthrough());
+            return m;
+        }).collect(java.util.stream.Collectors.toList()));
     }
 
     /**

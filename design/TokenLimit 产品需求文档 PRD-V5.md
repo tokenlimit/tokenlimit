@@ -601,6 +601,16 @@ Provider Credential 修改必须审计。
 Provider Credential 禁用必须实时生效。
 ```
 
+### 9.7 内置 Provider 模板（Provider Templates）
+
+为了降低配置门槛并避免 Base URL 拼写错误，系统内置主流大模型厂商的 OpenAI 兼容协议地址。
+
+1. **内置列表**：系统初始化时预置 OpenAI、DeepSeek、阿里云百炼（通义）、月之暗面（Kimi）、零一万物（Yi）、百川智能、MiniMax、硅基流动、OpenRouter、智谱 AI、火山方舟（豆包）、Google Gemini、Mistral、Groq、阶跃星辰、Jina、Ollama 等厂商的 Base URL。内置数据写入 `tl_provider` 表（`is_builtin=1`），同时以代码枚举 `LlmProvider` 作为兜底。
+2. **交互逻辑**：ADMIN 创建 Provider Credential 时，供应商下拉展示内置模板，选中后系统自动填充 Base URL（可微调）。
+3. **自定义支持**：保留“自定义（Custom）”选项，允许用户手动输入私有化部署模型或小众厂商的 Base URL。
+4. **不兼容厂商隔离**：对于原生不兼容 OpenAI 协议的厂商（如 Anthropic、文心一言、讯飞星火），不放入 MVP 阶段的直接透传模板列表（`openai_compatible=0`），避免直接透传导致 400 错误；如需支持需开发协议转换 Adapter。
+5. **特殊端点**：智谱 AI 路径为 `/api/paas/v4`（非 `/v1`）；火山方舟无统一模型名，需用户在控制台创建推理接入点并在 Base URL 后拼接 Endpoint ID（如 `/api/v3/ep-xxx`），系统仅预设前缀。
+
 ---
 
 ## 10. API Key 管理

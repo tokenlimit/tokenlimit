@@ -5,6 +5,7 @@ import com.tokenlimit.common.api.BusinessException;
 import com.tokenlimit.common.api.ErrorCode;
 import com.tokenlimit.server.entity.ProviderCredential;
 import com.tokenlimit.server.entity.TeamModelPolicy;
+import com.tokenlimit.server.enums.LlmProvider;
 import com.tokenlimit.server.repository.mapper.ProviderCredentialMapper;
 import com.tokenlimit.server.repository.mapper.TeamModelPolicyMapper;
 import com.tokenlimit.server.util.CredentialCryptoUtils;
@@ -102,7 +103,10 @@ public class ProviderResolverService {
         ResolvedCredential resolved = new ResolvedCredential();
         resolved.setProvider(credential.getProvider());
         resolved.setProviderName(credential.getProviderName());
-        resolved.setApiBaseUrl(credential.getApiBaseUrl());
+        // 未配置自定义上游地址时，回填已知厂商枚举中的默认地址
+        resolved.setApiBaseUrl(StringUtils.hasText(credential.getApiBaseUrl())
+                ? credential.getApiBaseUrl()
+                : LlmProvider.defaultBaseUrl(credential.getProvider()));
         resolved.setApiKey(CredentialCryptoUtils.decrypt(credential.getApiKeyEnc()));
         return resolved;
     }
@@ -113,6 +117,7 @@ public class ProviderResolverService {
     public static class ResolvedCredential {
         private String provider;
         private String providerName;
+        /** 上游 Base URL（未配置时已回填已知厂商默认地址）. */
         private String apiBaseUrl;
         private String apiKey;
 

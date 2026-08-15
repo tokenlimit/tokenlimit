@@ -143,6 +143,53 @@ CREATE TABLE IF NOT EXISTS `tl_provider_credential` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='供应商密钥凭证表';
 
 -- -------------------------------------------------------------
+-- 5.1 tl_provider 供应商字典表（内置模板，PRD V5.0 §9.7）
+--    内置主流大模型厂商的 OpenAI 兼容 Base URL，供控制台下拉选择、避免拼写错误；
+--    is_builtin=1 为系统预置模板，可展示/只读；is_builtin=0 为自定义供应商。
+--    openai_compatible: 是否兼容 OpenAI 协议可 HTTP 直接透传（0 表示需协议转换 Adapter）
+--    requires_endpoint: 是否需要拼接 Endpoint ID（如火山方舟 /api/v3/ep-xxx）
+-- -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `tl_provider` (
+  `id`                BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `provider_code`     VARCHAR(64)   NOT NULL COMMENT '供应商编码，如 openai/deepseek/qwen',
+  `provider_name`     VARCHAR(128)  NOT NULL COMMENT '供应商名称',
+  `base_url`          VARCHAR(512)  DEFAULT NULL COMMENT '默认 Base URL（OpenAI 兼容协议）',
+  `is_builtin`        TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '是否内置模板：1内置/0自定义',
+  `icon_url`          VARCHAR(255)  DEFAULT NULL COMMENT '图标地址（前端 Logo）',
+  `openai_compatible` TINYINT(1)    NOT NULL DEFAULT 1 COMMENT '是否 OpenAI 协议兼容可直传：1是/0否(需Adapter)',
+  `requires_endpoint` TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '是否需拼接 Endpoint ID：1是/0否',
+  `status`            VARCHAR(32)   NOT NULL DEFAULT 'ENABLED' COMMENT '状态：ENABLED/DISABLED',
+  `remark`            VARCHAR(255)  DEFAULT NULL COMMENT '备注',
+  `created_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_provider_code` (`provider_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='供应商字典表';
+
+-- 内置供应商模板（与代码枚举 LlmProvider 保持一致；Anthropic 原生 API 不兼容 OpenAI 协议，暂标记不可直传）
+INSERT INTO `tl_provider`
+  (`provider_code`, `provider_name`, `base_url`, `is_builtin`, `openai_compatible`, `requires_endpoint`, `remark`) VALUES
+  ('openai',     'OpenAI',                 'https://api.openai.com/v1',                                  1, 1, 0, '行业标准'),
+  ('deepseek',   'DeepSeek',               'https://api.deepseek.com/v1',                               1, 1, 0, '完全兼容'),
+  ('qwen',       '阿里云百炼（通义）',     'https://dashscope.aliyuncs.com/compatible-mode/v1',           1, 1, 0, '注意 compatible-mode 路径'),
+  ('moonshot',   '月之暗面（Kimi）',       'https://api.moonshot.cn/v1',                                 1, 1, 0, '完全兼容'),
+  ('yi',         '零一万物（Yi）',         'https://api.lingyiwanwu.com/v1',                             1, 1, 0, '完全兼容'),
+  ('baichuan',   '百川智能',               'https://api.baichuan-ai.com/v1',                            1, 1, 0, '完全兼容'),
+  ('minimax',    'MiniMax',                'https://api.minimax.chat/v1',                               1, 1, 0, '完全兼容'),
+  ('siliconflow','硅基流动',               'https://api.siliconflow.cn/v1',                             1, 1, 0, '开源模型聚合平台'),
+  ('openrouter', 'OpenRouter',             'https://openrouter.ai/api/v1',                              1, 1, 0, '全球主流聚合平台'),
+  ('zhipu',      '智谱 AI（GLM）',         'https://open.bigmodel.cn/api/paas/v4',                      1, 1, 0, '路径为 /v4 而非 /v1'),
+  ('volcengine', '火山方舟（豆包）',       'https://ark.cn-beijing.volces.com/api/v3',                   1, 1, 1, '需拼接控制台创建的 Endpoint ID'),
+  ('xai',        'xAI（Grok）',            'https://api.x.ai/v1',                                       1, 1, 0, '完全兼容'),
+  ('gemini',     'Google Gemini',          'https://generativelanguage.googleapis.com/v1beta/openai',   1, 1, 0, 'OpenAI 兼容端点'),
+  ('mistral',    'Mistral AI',             'https://api.mistral.ai/v1',                                 1, 1, 0, '完全兼容'),
+  ('groq',       'Groq',                   'https://api.groq.com/openai/v1',                            1, 1, 0, '完全兼容'),
+  ('stepfun',    '阶跃星辰',               'https://api.stepfun.com/v1',                                1, 1, 0, '完全兼容'),
+  ('jina',       'Jina AI',                'https://api.jina.ai/v1',                                    1, 1, 0, '完全兼容'),
+  ('ollama',     'Ollama',                 'http://localhost:11434/v1',                                 1, 1, 0, '本地部署'),
+  ('anthropic',  'Anthropic（Claude）',    'https://api.anthropic.com/v1',                              1, 0, 0, '原生 API 不兼容 OpenAI 协议，需 Adapter');
+
+-- -------------------------------------------------------------
 -- 6. tl_team_model_policy 团队模型策略（PRD V5.0）
 --    定义 Team 允许使用的模型及绑定的 Provider Credential；
 --    启用策略时未命中模型将返回 MODEL_NOT_ALLOWED

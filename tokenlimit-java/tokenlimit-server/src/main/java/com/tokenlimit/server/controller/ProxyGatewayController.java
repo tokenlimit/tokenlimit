@@ -10,6 +10,7 @@ import com.tokenlimit.common.dto.CheckResult;
 import com.tokenlimit.server.entity.ApiKey;
 import com.tokenlimit.server.entity.ModelPrice;
 import com.tokenlimit.server.entity.TeamModelPolicy;
+import com.tokenlimit.server.enums.LlmProvider;
 import com.tokenlimit.server.repository.mapper.ModelPriceMapper;
 import com.tokenlimit.server.repository.mapper.TeamModelPolicyMapper;
 import com.tokenlimit.server.security.OpenAiResponseWriter;
@@ -444,14 +445,12 @@ public class ProxyGatewayController {
             String base = apiBaseUrl.endsWith("/") ? apiBaseUrl.substring(0, apiBaseUrl.length() - 1) : apiBaseUrl;
             return base + "/" + path;
         }
-        String host = switch (provider == null ? "" : provider.toLowerCase()) {
-            case "anthropic" -> "https://api.anthropic.com";
-            case "deepseek" -> "https://api.deepseek.com";
-            case "qwen", "dashscope" -> "https://dashscope.aliyuncs.com/compatible-mode";
-            case "openai" -> "https://api.openai.com";
-            default -> "https://api.openai.com";
-        };
-        return host + "/v1/" + path;
+        // 兜底：未配置上游地址时使用已知厂商枚举的默认地址
+        String base = LlmProvider.defaultBaseUrl(provider);
+        if (base == null) {
+            base = LlmProvider.OPENAI.getDefaultBaseUrl();
+        }
+        return base + "/" + path;
     }
 
     private String readBody(HttpServletRequest request) throws IOException {
