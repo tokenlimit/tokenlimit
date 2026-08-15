@@ -28,7 +28,9 @@ import java.util.List;
  *   <li>认证失败不在此处抛异常，交由 {@code AuthenticationEntryPoint} 统一返回 401</li>
  *   <li>首次登录强制改密：会话标记 {@code mustChangePassword} 时，除改密/个人信息/登出外
  *       一律拒绝访问（403）</li>
- *   <li>客户端数据面接口（{@code /api/v1/client/**}）走 API Key 自校验，本过滤器不干预</li>
+ *   <li>数据面接口不参与会话认证，由独立过滤器负责：{@code /v1/**} OpenAI Compatible
+ *       网关走 {@link OpenAiApiKeyAuthenticationFilter}（API Key 认证）；
+ *       {@code /api/v1/client/**} 客户端数据面接口（V4 遗留）走 API Key 自校验</li>
  * </ul>
  */
 @Component
@@ -51,9 +53,11 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        // 客户端数据面接口走 API Key 自校验，不参与会话认证
+        // 数据面接口不参与 Web 会话认证：
+        // - /v1/** OpenAI Compatible 网关 → OpenAiApiKeyAuthenticationFilter（API Key 认证）
+        // - /api/v1/client/** 客户端数据面接口（V4 遗留）→ API Key 自校验
         String uri = request.getRequestURI();
-        return uri != null && uri.startsWith("/api/v1/client/");
+        return uri != null && (uri.startsWith("/v1/") || uri.startsWith("/api/v1/client/"));
     }
 
     @Override

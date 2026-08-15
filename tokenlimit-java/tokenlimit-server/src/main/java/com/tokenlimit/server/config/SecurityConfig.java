@@ -3,6 +3,7 @@ package com.tokenlimit.server.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tokenlimit.common.api.ErrorCode;
 import com.tokenlimit.common.api.Result;
+import com.tokenlimit.server.security.OpenAiApiKeyAuthenticationFilter;
 import com.tokenlimit.server.security.TokenAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -22,8 +23,13 @@ import java.nio.charset.StandardCharsets;
 /**
  * 统一安全配置（企业级）.
  * <p>无状态 API：不启用 Servlet Session，不启用 CSRF（前后端分离 + Bearer token），
- * 由 {@link TokenAuthenticationFilter} 解析 Bearer 会话 token 并注入 SecurityContext，
- * 通过 {@code @PreAuthorize} 做方法级授权。未认证统一返回 401、越权统一返回 403，
+ * 认证分为两条互不干扰的链路：</p>
+ * <ul>
+ *   <li>{@link TokenAuthenticationFilter}：Web 管理端会话 token 认证（{@code /api/**}）</li>
+ *   <li>{@link OpenAiApiKeyAuthenticationFilter}：OpenAI Compatible API Key 认证（{@code /v1/**}，
+ *       失败直接返回 OpenAI 兼容错误）</li>
+ * </ul>
+ * <p>通过 {@code @PreAuthorize} 做方法级授权。未认证统一返回 401、越权统一返回 403，
  * 响应体与业务 {@link Result} 结构一致。</p>
  */
 @Configuration
@@ -32,10 +38,14 @@ import java.nio.charset.StandardCharsets;
 public class SecurityConfig {
 
     private final TokenAuthenticationFilter tokenAuthenticationFilter;
+    private final OpenAiApiKeyAuthenticationFilter openAiApiKeyAuthenticationFilter;
     private final ObjectMapper objectMapper;
 
-    public SecurityConfig(TokenAuthenticationFilter tokenAuthenticationFilter, ObjectMapper objectMapper) {
+    public SecurityConfig(TokenAuthenticationFilter tokenAuthenticationFilter,
+                          OpenAiApiKeyAuthenticationFilter openAiApiKeyAuthenticationFilter,
+                          ObjectMapper objectMapper) {
         this.tokenAuthenticationFilter = tokenAuthenticationFilter;
+        this.openAiApiKeyAuthenticationFilter = openAiApiKeyAuthenticationFilter;
         this.objectMapper = objectMapper;
     }
 
@@ -63,7 +73,8 @@ public class SecurityConfig {
                         .accessDeniedHandler((request, response, ex) ->
                                 writeJson(response, HttpServletResponse.SC_FORBIDDEN,
                                         Result.failure(ErrorCode.UNAUTHORIZED.getCode(), "无权访问该资源"))))
-                .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(openAiApiKeyAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
@@ -80,13 +91,24 @@ public class SecurityConfig {
     }
 
     /**
-     * 阻止容器自动注册认证过滤器：该过滤器仅挂在 Spring Security 链中执行，
+     * 阻止容器自动注册认证过滤器：这些过滤器仅挂在 Spring Security 链中执行，
      * 避免被 Servlet 容器重复执行导致双重认证。
      */
     @Bean
     public FilterRegistrationBean<TokenAuthenticationFilter> tokenAuthenticationFilterRegistration(
             TokenAuthenticationFilter filter) {
         FilterRegistrationBean<TokenAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    /**
+     * 同上：OpenAI Compatible API Key 认证过滤器仅挂载在 Spring Security 链中执行.
+     */
+    @Bean
+    public FilterRegistrationBean<OpenAiApiKeyAuthenticationFilter> openAiApiKeyAuthenticationFilterRegistration(
+            OpenAiApiKeyAuthenticationFilter filter) {
+        FilterRegistrationBean<OpenAiApiKeyAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setEnabled(false);
         return registration;
     }

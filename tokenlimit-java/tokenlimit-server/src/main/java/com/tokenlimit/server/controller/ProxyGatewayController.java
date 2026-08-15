@@ -12,6 +12,8 @@ import com.tokenlimit.server.entity.ModelPrice;
 import com.tokenlimit.server.entity.TeamModelPolicy;
 import com.tokenlimit.server.repository.mapper.ModelPriceMapper;
 import com.tokenlimit.server.repository.mapper.TeamModelPolicyMapper;
+import com.tokenlimit.server.security.OpenAiResponseWriter;
+import com.tokenlimit.server.security.SecurityUtils;
 import com.tokenlimit.server.service.ProviderResolverService;
 import com.tokenlimit.server.service.QuotaService;
 import com.tokenlimit.server.service.TokenEstimationService;
@@ -46,8 +48,10 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * OpenAI Compatible Proxy 网关（PRD V5.0）.
  * <p>客户端零改造接入：{@code Authorization: Bearer <access_key>:<secret>}。
- * 流程：API Key 鉴权（INVALID_API_KEY / API_KEY_DISABLED / API_KEY_EXPIRED）
- * → Team Model Policy 模型策略校验（MODEL_NOT_ALLOWED）
+ * API Key 鉴权（INVALID_API_KEY / API_KEY_DISABLED / API_KEY_EXPIRED）由
+ * {@code OpenAiApiKeyAuthenticationFilter} 统一负责，认证通过后从 SecurityContext
+ * 获取 {@link ApiKey} 身份与原始凭证。
+ * 本 Controller 流程：Team Model Policy 模型策略校验（MODEL_NOT_ALLOWED）
  * → jtokkit 预估 → 配额 check（简单计数器，只读不预扣）
  * → Provider 凭证解析 → 转发上游（流式/非流式透传）
  * → report（厂商 usage 优先，缺失按预估结算；含异常计费检测）。</p>
@@ -90,8 +94,12 @@ public class ProxyGatewayController {
     @GetMapping("/models")
     public void models(HttpServletRequest request, HttpServletResponse response) throws IOException {
         try {
-            String[] credential = parseCredential(request.getHeader("Authorization"));
-            ApiKey apiKey = quotaService.authenticate(credential[0], credential[1]);
+            // API Key 已由 OpenAiApiKeyAuthenticationFilter 认证并注入 SecurityContext
+            ApiKey apiKey = SecurityUtils.currentApiKey();
+            if (apiKey == null) {
+                writeOpenAiError(response, ErrorCode.INVALID_API_KEY);
+                return;
+            }
 
             List<String> models = allowedModels(apiKey.getTeamCode());
             ObjectNode root = objectMapper.createObjectNode();
@@ -110,7 +118,8 @@ public class ProxyGatewayController {
         } catch (BusinessException e) {
             writeOpenAiError(response, e.getCode(), e.getMessage());
         } catch (Exception e) {
-            writeOpenAiError(response, 401, "未提供有效的 API Key 凭证");
+            log.warn("模型列表处理异常: {}", e.getMessage());
+            writeOpenAiError(response, ErrorCode.INVALID_API_KEY);
         }
     }
 
@@ -137,8 +146,10 @@ public class ProxyGatewayController {
     private void handleCompletion(HttpServletRequest request, HttpServletResponse response,
                                   String upstreamPath) throws IOException {
         String body = readBody(request);
-        String[] credential = parseCredential(request.getHeader("Authorization"));
-        if (credential == null) {
+        // 1. API Key 已由 OpenAiApiKeyAuthenticationFilter 认证并注入 SecurityContext（此处不再重复鉴权）
+        ApiKey apiKey = SecurityUtils.currentApiKey();
+        String[] credential = SecurityUtils.currentApiKeyCredential();
+        if (apiKey == null || credential == null) {
             writeOpenAiError(response, ErrorCode.INVALID_API_KEY);
             return;
         }
@@ -156,15 +167,6 @@ public class ProxyGatewayController {
             return;
         }
         boolean stream = requestJson.path("stream").asBoolean(false);
-
-        // 1. API Key 鉴权（含状态 / 过期校验）→ 获取 Team / User 上下文
-        ApiKey apiKey;
-        try {
-            apiKey = quotaService.authenticate(credential[0], credential[1]);
-        } catch (BusinessException e) {
-            writeOpenAiError(response, e.getCode(), e.getMessage());
-            return;
-        }
 
         // 2. Team Model Policy 模型策略校验（MODEL_NOT_ALLOWED）
         try {
@@ -430,27 +432,6 @@ public class ProxyGatewayController {
         return new ArrayList<>(allowed);
     }
 
-    /**
-     * 解析 Authorization: Bearer &lt;access_key&gt;:&lt;secret&gt;.
-     */
-    private String[] parseCredential(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return null;
-        }
-        String token = authHeader.substring(7).trim();
-        if (!StringUtils.hasText(token)) {
-            return null;
-        }
-        int idx = token.indexOf(':');
-        if (idx > 0) {
-            String accessKey = token.substring(0, idx).trim();
-            String secret = token.substring(idx + 1).trim();
-            return StringUtils.hasText(accessKey) && StringUtils.hasText(secret)
-                    ? new String[]{accessKey, secret} : null;
-        }
-        return null;
-    }
-
     private String injectStreamOptions(String body) throws IOException {
         JsonNode root = objectMapper.readTree(body);
         ((ObjectNode) root).set("stream_options",
@@ -530,41 +511,17 @@ public class ProxyGatewayController {
     }
 
     /**
-     * 按业务错误码写出 OpenAI 兼容错误响应（PRD V5.0 6.5 错误码映射）.
+     * 按业务错误码写出 OpenAI 兼容错误响应（PRD V5.0 6.5 错误码映射，实现见 {@link OpenAiResponseWriter}）.
      */
     private void writeOpenAiError(HttpServletResponse response, int businessCode, String message) {
-        switch (businessCode) {
-            case 4010 -> writeOpenAiError(response, 401, "INVALID_API_KEY", message);
-            case 4011 -> writeOpenAiError(response, 401, "API_KEY_DISABLED", message);
-            case 4012 -> writeOpenAiError(response, 401, "API_KEY_EXPIRED", message);
-            case 4030 -> writeOpenAiError(response, 403, "MODEL_NOT_ALLOWED", message);
-            case 4290 -> writeOpenAiError(response, 429, "TEAM_QUOTA_EXCEEDED", message);
-            case 4291 -> writeOpenAiError(response, 429, "USER_QUOTA_EXCEEDED", message);
-            case 5001 -> writeOpenAiError(response, 500, "PROVIDER_NOT_FOUND", message);
-            case 5020 -> writeOpenAiError(response, 502, "PROVIDER_ERROR", message);
-            default -> writeOpenAiError(response, 500, "INTERNAL_ERROR", message);
-        }
+        OpenAiResponseWriter.writeError(response, objectMapper, businessCode, message);
     }
 
     private void writeOpenAiError(HttpServletResponse response, ErrorCode errorCode) {
-        writeOpenAiError(response, errorCode.getHttpStatus(), errorCode.name(), errorCode.getMessage());
+        OpenAiResponseWriter.writeError(response, objectMapper, errorCode);
     }
 
     private void writeOpenAiError(HttpServletResponse response, int status, String code, String message) {
-        try {
-            if (response.isCommitted()) {
-                return;
-            }
-            ObjectNode error = objectMapper.createObjectNode();
-            error.put("error", objectMapper.createObjectNode()
-                    .put("message", message == null ? "unknown error" : message)
-                    .put("type", status == 401 ? "authentication_error"
-                            : status == 429 ? "insufficient_quota"
-                            : status == 403 ? "permission_error" : "invalid_request_error")
-                    .put("code", code));
-            writeRaw(response, status, MediaType.APPLICATION_JSON_VALUE, objectMapper.writeValueAsString(error));
-        } catch (Exception e) {
-            log.warn("写出 OpenAI 错误响应失败", e);
-        }
+        OpenAiResponseWriter.writeError(response, objectMapper, status, code, message);
     }
 }
