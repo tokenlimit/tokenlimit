@@ -81,6 +81,7 @@ public class QuotaService {
     private final UsageLogAsyncService usageLogAsyncService;
     private final ApiKeyMetricsService apiKeyMetricsService;
     private final QuotaUsageAggregator quotaUsageAggregator;
+    private final PriceCalculatorService priceCalculatorService;
     /** 配额拦截责任链（按 tokenlimit.quota-chain 配置顺序执行） */
     private final LinkedHashMap<String, QuotaInterceptor> chain;
 
@@ -90,6 +91,7 @@ public class QuotaService {
                         UsageLogAsyncService usageLogAsyncService,
                         ApiKeyMetricsService apiKeyMetricsService,
                         QuotaUsageAggregator quotaUsageAggregator,
+                        PriceCalculatorService priceCalculatorService,
                         List<QuotaInterceptor> interceptors) {
         this.quotaRuleMapper = quotaRuleMapper;
         this.usageLogMapper = usageLogMapper;
@@ -101,6 +103,7 @@ public class QuotaService {
         this.usageLogAsyncService = usageLogAsyncService;
         this.apiKeyMetricsService = apiKeyMetricsService;
         this.quotaUsageAggregator = quotaUsageAggregator;
+        this.priceCalculatorService = priceCalculatorService;
         Map<String, QuotaInterceptor> byName = new LinkedHashMap<>();
         for (QuotaInterceptor interceptor : interceptors) {
             byName.put(interceptor.name(), interceptor);
@@ -210,6 +213,7 @@ public class QuotaService {
      */
     public ReportResult report(String traceId, String accessKey, String secret, String model,
                                long promptTokens, long completionTokens, long totalTokens,
+                               long cachedTokens, long cacheWriteTokens,
                                String provider, String status, Long latencyMs,
                                long estimatedPromptTokens, long estimatedCompletionTokens,
                                long estimatedTotalTokens) {
@@ -280,7 +284,24 @@ public class QuotaService {
         usageLog.setPromptTokens(promptTokens);
         usageLog.setCompletionTokens(completionTokens);
         usageLog.setTotalTokens(totalTokens);
-        usageLog.setCost(0L); // MVP 阶段不计算费用
+        // 计费快照（V5.3）：动态读取价格表计算费用，单价/汇率固化到 usage_log，历史费用不可变
+        // 缓存计费（V5.4）：PROVIDER 时按厂商返回的缓存 token 计算，ESTIMATED 时缓存按 0
+        long billPrompt = providerUsage ? promptTokens : Math.max(estPrompt, estimatedPromptTokens);
+        long billCompletion = providerUsage ? completionTokens : Math.max(estCompletion, estimatedCompletionTokens);
+        PriceCalculatorService.CostResult billing = priceCalculatorService.calculateCost(
+                StringUtils.hasText(provider) ? provider : null, model, billPrompt, billCompletion,
+                providerUsage ? cachedTokens : 0, providerUsage ? cacheWriteTokens : 0);
+        usageLog.setCost(billing.costBase());
+        usageLog.setCostOriginal(billing.costOriginal());
+        usageLog.setCurrency(billing.currency());
+        usageLog.setInputPriceSnapshot(billing.inputPricePerToken());
+        usageLog.setOutputPriceSnapshot(billing.outputPricePerToken());
+        usageLog.setExchangeRateSnapshot(billing.exchangeRate());
+        usageLog.setBaseCurrency(billing.baseCurrency());
+        usageLog.setCachedTokens(providerUsage ? cachedTokens : 0);
+        usageLog.setCacheWriteTokens(providerUsage ? cacheWriteTokens : 0);
+        usageLog.setCacheReadPriceSnapshot(billing.cacheReadPricePerToken());
+        usageLog.setCacheWritePriceSnapshot(billing.cacheWritePricePerToken());
         usageLog.setConsumeFrom(StringUtils.hasText(consumeFrom) ? consumeFrom : "TEAM");
         usageLog.setUsageSource(usageSource);
         usageLog.setStatus(usageStatus);

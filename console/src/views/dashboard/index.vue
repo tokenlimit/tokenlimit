@@ -1,9 +1,20 @@
 <template>
   <div class="page">
     <el-row :gutter="16" class="stat-row">
-      <el-col :span="3" v-for="item in stats" :key="item.label">
+      <el-col :span="4" v-for="item in stats" :key="item.label">
         <el-card>
           <div class="stat">
+            <div class="value">{{ item.value }}</div>
+            <div class="label">{{ item.label }}</div>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="16" class="stat-row">
+      <el-col :span="8" v-for="item in costStats" :key="item.label">
+        <el-card>
+          <div class="stat" :class="{ 'stat-green': item.highlight }">
             <div class="value">{{ item.value }}</div>
             <div class="label">{{ item.label }}</div>
           </div>
@@ -61,8 +72,13 @@ const stats = ref<{ label: string; value: number | string }[]>([
   { label: '用户总数', value: 0 },
   { label: 'API Key 数', value: 0 },
   { label: '今日 Token', value: 0 },
-  { label: '今日调用', value: 0 },
-  { label: '今日费用(¥)', value: 0 }
+  { label: '今日调用', value: 0 }
+])
+// 计费指标（V5.3 费用 / V5.4 缓存命中率与节省金额）
+const costStats = ref<{ label: string; value: number | string; highlight?: boolean }[]>([
+  { label: '今日费用(¥)', value: 0 },
+  { label: '今日缓存命中率', value: '0.0%' },
+  { label: '今日缓存节省(¥)', value: 0, highlight: true }
 ])
 const trend = ref<TrendPoint[]>([])
 const topTeams = ref<TopTeam[]>([])
@@ -89,8 +105,12 @@ async function loadStats() {
       { label: '用户总数', value: data.totalUsers },
       { label: 'API Key 数', value: data.totalApiKeys },
       { label: '今日 Token', value: formatNum(data.todayTokens) },
-      { label: '今日调用', value: data.todayCalls },
-      { label: '今日费用(¥)', value: Number(data.todayCost).toFixed(2) }
+      { label: '今日调用', value: data.todayCalls }
+    ]
+    costStats.value = [
+      { label: '今日费用(¥)', value: Number(data.todayCost ?? 0).toFixed(2) },
+      { label: '今日缓存命中率', value: `${Number(data.todayCacheHitRate ?? 0).toFixed(1)}%` },
+      { label: '今日缓存节省(¥)', value: Number(data.todayCacheSavedCost ?? 0).toFixed(2), highlight: true }
     ]
   } catch {
     // 接口未就绪时使用默认值
@@ -139,6 +159,12 @@ onMounted(() => {
     .label {
       margin-top: 8px;
       color: #909399;
+    }
+  }
+
+  .stat-green {
+    .value {
+      color: #67c23a;
     }
   }
 }

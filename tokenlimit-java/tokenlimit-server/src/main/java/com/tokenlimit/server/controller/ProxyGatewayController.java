@@ -214,7 +214,7 @@ public class ProxyGatewayController {
             if (upstreamResponse.getCode() >= 400) {
                 // 上游错误
                 String err = upstreamProxyService.readErrorResponse(upstreamResponse);
-                settle(credential, traceId, model, resolved.getProvider(), 0, 0, 0,
+                settle(credential, traceId, model, resolved.getProvider(), 0, 0, 0, 0, 0,
                         "ERROR", estPrompt, 0, estPrompt);
                 writeRaw(response, upstreamResponse.getCode(),
                         contentTypeOf(upstreamResponse),
@@ -231,7 +231,7 @@ public class ProxyGatewayController {
             }
         } catch (Exception e) {
             log.error("[{}] 上游转发失败", traceId, e);
-            settle(credential, traceId, model, resolved.getProvider(), 0, 0, 0,
+            settle(credential, traceId, model, resolved.getProvider(), 0, 0, 0, 0, 0,
                     "ERROR", estPrompt, 0, estPrompt);
             if (!response.isCommitted()) {
                 writeOpenAiError(response, ErrorCode.PROVIDER_ERROR);
@@ -254,19 +254,20 @@ public class ProxyGatewayController {
             // 使用真实 usage
             settle(credential, traceId, model, provider,
                     result.getPromptTokens(), result.getCompletionTokens(), result.getTotalTokens(),
+                    result.getCachedTokens(), result.getCacheWriteTokens(),
                     "SUCCESS", estPrompt, result.getEstimatedCompletionTokens(),
                     Math.max(result.getTotalTokens(), estPrompt));
             log.debug("[{}] 流式完成, latency={}ms, tokens={}", traceId, latencyMs, result.getTotalTokens());
         } else if (result.isSuccess()) {
             // 无 usage，使用估算
-            settle(credential, traceId, model, provider, 0, 0, 0, "SUCCESS",
+            settle(credential, traceId, model, provider, 0, 0, 0, 0, 0, "SUCCESS",
                     estPrompt, result.getEstimatedCompletionTokens(),
                     estPrompt + result.getEstimatedCompletionTokens());
             log.debug("[{}] 流式完成(估算), latency={}ms, estTokens={}", traceId, latencyMs, 
                     result.getEstimatedCompletionTokens());
         } else {
             // 中断
-            settle(credential, traceId, model, provider, 0, 0, 0, "INTERRUPTED",
+            settle(credential, traceId, model, provider, 0, 0, 0, 0, 0, "INTERRUPTED",
                     estPrompt, result.getEstimatedCompletionTokens(),
                     estPrompt + result.getEstimatedCompletionTokens());
             log.warn("[{}] 流式中断, latency={}ms, estTokens={}", traceId, latencyMs, 
@@ -288,11 +289,12 @@ public class ProxyGatewayController {
         if (result.isHasUsage()) {
             settle(credential, traceId, model, provider,
                     result.getPromptTokens(), result.getCompletionTokens(), result.getTotalTokens(),
+                    result.getCachedTokens(), result.getCacheWriteTokens(),
                     "SUCCESS", estPrompt, result.getCompletionTokens(),
                     Math.max(result.getTotalTokens(), estPrompt));
             log.debug("[{}] 非流式完成, latency={}ms, tokens={}", traceId, latencyMs, result.getTotalTokens());
         } else {
-            settle(credential, traceId, model, provider, 0, 0, 0, "SUCCESS",
+            settle(credential, traceId, model, provider, 0, 0, 0, 0, 0, "SUCCESS",
                     estPrompt, 0, estPrompt);
             log.debug("[{}] 非流式完成(无usage), latency={}ms", traceId, latencyMs);
         }
@@ -310,13 +312,16 @@ public class ProxyGatewayController {
 
     /**
      * 用量结算.
+     *
+     * @param cached     缓存命中 token（OpenAI/DeepSeek/Anthropic 缓存读取）
+     * @param cacheWrite 缓存写入 token（Anthropic cache_creation）
      */
     private void settle(String[] credential, String traceId, String model, String provider,
-                        long prompt, long completion, long total, String status,
-                        long estPrompt, long estCompletion, long estTotal) {
+                        long prompt, long completion, long total, long cached, long cacheWrite,
+                        String status, long estPrompt, long estCompletion, long estTotal) {
         try {
             quotaService.report(traceId, credential[0], credential[1], model,
-                    prompt, completion, total, provider, status, null,
+                    prompt, completion, total, cached, cacheWrite, provider, status, null,
                     estPrompt, estCompletion, estTotal);
         } catch (Exception e) {
             log.error("[{}] 用量上报失败", traceId, e);

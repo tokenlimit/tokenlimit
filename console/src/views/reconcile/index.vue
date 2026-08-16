@@ -139,21 +139,21 @@
             </el-table-column>
             <el-table-column prop="model" label="模型" min-width="180" />
             <el-table-column label="输入单价（元/百万）" width="160">
-              <template #default="{ row }">{{ (row.inputPrice || 0).toFixed(6) }}</template>
+              <template #default="{ row }">{{ (((row.inputPricePerToken || 0) * 1000000).toFixed(2)) }}</template>
             </el-table-column>
             <el-table-column label="输出单价（元/百万）" width="160">
-              <template #default="{ row }">{{ (row.outputPrice || 0).toFixed(6) }}</template>
+              <template #default="{ row }">{{ (((row.outputPricePerToken || 0) * 1000000).toFixed(2)) }}</template>
             </el-table-column>
             <el-table-column prop="currency" label="币种" width="90" />
             <el-table-column label="状态" width="90">
               <template #default="{ row }">
-                <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">{{ row.status === 'ACTIVE' ? '启用' : '停用' }}</el-tag>
+                <el-tag :type="row.status === 'ENABLED' ? 'success' : 'info'">{{ row.status === 'ENABLED' ? '启用' : '停用' }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="180" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openPriceDialog(row)">编辑</el-button>
-                <el-button link type="warning" @click="handleTogglePrice(row)">{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button>
+                <el-button link type="warning" @click="handleTogglePrice(row)">{{ row.status === 'ENABLED' ? '停用' : '启用' }}</el-button>
                 <el-button link type="danger" @click="handleDeletePrice(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -230,13 +230,32 @@
           <el-input v-model="priceForm.model" placeholder="如：gpt-4o" :disabled="!!priceForm.id" />
         </el-form-item>
         <el-form-item label="输入单价（元/百万）">
-          <el-input-number v-model="priceForm.inputPrice" :min="0" :precision="6" :step="0.01" style="width: 100%" />
+          <el-input-number v-model="priceForm.inputPerMillion" :min="0" :precision="4" :step="0.1" style="width: 100%" />
+          <div class="form-tip">每百万 Token 单价，保存后自动折算为每 Token 单价</div>
         </el-form-item>
         <el-form-item label="输出单价（元/百万）">
-          <el-input-number v-model="priceForm.outputPrice" :min="0" :precision="6" :step="0.01" style="width: 100%" />
+          <el-input-number v-model="priceForm.outputPerMillion" :min="0" :precision="4" :step="0.1" style="width: 100%" />
+          <div class="form-tip">每百万 Token 单价，保存后自动折算为每 Token 单价</div>
+        </el-form-item>
+        <el-form-item label="缓存读取单价（元/百万）">
+          <el-input-number v-model="priceForm.cacheReadPerMillion" :min="0" :precision="4" :step="0.1" style="width: 100%" placeholder="可选" />
+          <div class="form-tip">可选：缓存命中 Token 单价（OpenAI 5 折 / DeepSeek 1 折 / Anthropic 1 折），留空按正常输入价计费</div>
+        </el-form-item>
+        <el-form-item label="缓存写入单价（元/百万）">
+          <el-input-number v-model="priceForm.cacheWritePerMillion" :min="0" :precision="4" :step="0.1" style="width: 100%" placeholder="可选" />
+          <div class="form-tip">可选：缓存写入 Token 单价（Anthropic 为正常输入价 1.25 倍），留空按正常输入价计费</div>
         </el-form-item>
         <el-form-item label="币种">
-          <el-input v-model="priceForm.currency" placeholder="CNY" />
+          <el-select v-model="priceForm.currency" style="width: 100%">
+            <el-option label="CNY（人民币）" value="CNY" />
+            <el-option label="USD（美元）" value="USD" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="priceForm.status" style="width: 100%">
+            <el-option label="启用" value="ENABLED" />
+            <el-option label="停用" value="DISABLED" />
+          </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -542,12 +561,24 @@ async function loadPrices() {
 }
 
 const priceDialogVisible = ref(false)
-const priceForm = reactive<ModelPrice>({})
+// 表单用“元/百万 Token”录入，保存时自动折算为每 Token 单价；缓存单价可选（null 表示未配置）
+const priceForm = reactive<ModelPrice & {
+  inputPerMillion?: number
+  outputPerMillion?: number
+  cacheReadPerMillion?: number
+  cacheWritePerMillion?: number
+}>({})
 
 function openPriceDialog(row?: ModelPrice) {
   Object.assign(priceForm, row
-    ? { ...row }
-    : { id: undefined, provider: '', model: '', inputPrice: 0, outputPrice: 0, currency: 'CNY', status: 'ACTIVE' })
+    ? {
+        ...row,
+        inputPerMillion: Number((row.inputPricePerToken || 0) * 1000000),
+        outputPerMillion: Number((row.outputPricePerToken || 0) * 1000000),
+        cacheReadPerMillion: row.cacheReadPricePerToken == null ? undefined : Number(row.cacheReadPricePerToken * 1000000),
+        cacheWritePerMillion: row.cacheWritePricePerToken == null ? undefined : Number(row.cacheWritePricePerToken * 1000000)
+      }
+    : { id: undefined, provider: '', model: '', inputPerMillion: 0, outputPerMillion: 0, currency: 'CNY', status: 'ENABLED' })
   priceDialogVisible.value = true
 }
 
@@ -556,18 +587,32 @@ async function handleSavePrice() {
     ElMessage.warning('请填写供应商与模型')
     return
   }
-  if (priceForm.id) {
-    await updateModelPrice(priceForm.id, priceForm)
-  } else {
-    await createModelPrice(priceForm)
+  // 元/百万 → 每 Token 单价（保留 10 位小数）；缓存单价留空存 null（按正常输入价计费）
+  const payload = {
+    ...priceForm,
+    inputPricePerToken: Number(((priceForm.inputPerMillion || 0) / 1000000).toFixed(10)),
+    outputPricePerToken: Number(((priceForm.outputPerMillion || 0) / 1000000).toFixed(10)),
+    cacheReadPricePerToken: priceForm.cacheReadPerMillion == null
+      ? null : Number(((priceForm.cacheReadPerMillion || 0) / 1000000).toFixed(10)),
+    cacheWritePricePerToken: priceForm.cacheWritePerMillion == null
+      ? null : Number(((priceForm.cacheWritePerMillion || 0) / 1000000).toFixed(10))
   }
-  ElMessage.success('保存成功')
+  delete payload.inputPerMillion
+  delete payload.outputPerMillion
+  delete payload.cacheReadPerMillion
+  delete payload.cacheWritePerMillion
+  if (priceForm.id) {
+    await updateModelPrice(priceForm.id, payload)
+  } else {
+    await createModelPrice(payload)
+  }
+  ElMessage.success('保存成功（只影响新调用，历史账单费用不变）')
   priceDialogVisible.value = false
   loadPrices()
 }
 
 async function handleTogglePrice(row: ModelPrice) {
-  await changeModelPriceStatus(row.id!, row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE')
+  await changeModelPriceStatus(row.id!, row.status === 'ENABLED' ? 'DISABLED' : 'ENABLED')
   ElMessage.success('已更新')
   loadPrices()
 }
@@ -636,6 +681,13 @@ onMounted(() => {
 .pagination {
   margin-top: 14px;
   justify-content: flex-end;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
+  margin-top: 2px;
 }
 
 .danger-text {

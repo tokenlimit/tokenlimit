@@ -100,6 +100,8 @@ public class UpstreamProxyService {
         AtomicLong promptTokens = new AtomicLong(0);
         AtomicLong completionTokens = new AtomicLong(0);
         AtomicLong totalTokens = new AtomicLong(0);
+        AtomicLong cachedTokens = new AtomicLong(0);
+        AtomicLong cacheWriteTokens = new AtomicLong(0);
         AtomicBoolean hasUsage = new AtomicBoolean(false);
 
         // 分块估算：累积文本，达到阈值时估算并清空
@@ -118,7 +120,8 @@ public class UpstreamProxyService {
                             // 提取真实 usage（如果有）
                             JsonNode usage = node.path("usage");
                             if (!usage.isMissingNode() && !usage.isNull()) {
-                                captureUsage(usage, promptTokens, completionTokens, totalTokens);
+                                captureUsage(usage, promptTokens, completionTokens, totalTokens,
+                                        cachedTokens, cacheWriteTokens);
                                 hasUsage.set(true);
                             }
                             // 累积 delta.content 用于分块估算
@@ -153,6 +156,8 @@ public class UpstreamProxyService {
             result.setPromptTokens(promptTokens.get());
             result.setCompletionTokens(completionTokens.get());
             result.setTotalTokens(totalTokens.get());
+            result.setCachedTokens(cachedTokens.get());
+            result.setCacheWriteTokens(cacheWriteTokens.get());
             result.setEstimatedCompletionTokens(estimatedCompletionTokens.get());
             return result;
 
@@ -188,6 +193,8 @@ public class UpstreamProxyService {
                 result.setPromptTokens(usage.path("prompt_tokens").asLong(0));
                 result.setCompletionTokens(usage.path("completion_tokens").asLong(0));
                 result.setTotalTokens(usage.path("total_tokens").asLong(0));
+                result.setCachedTokens(resolveCachedTokens(usage));
+                result.setCacheWriteTokens(usage.path("cache_creation_input_tokens").asLong(0));
                 result.setHasUsage(true);
             }
         } catch (Exception ignore) {
@@ -225,13 +232,32 @@ public class UpstreamProxyService {
         return readFully(readEntity(entity));
     }
 
-    private void captureUsage(JsonNode usage, AtomicLong prompt, AtomicLong completion, AtomicLong total) {
+    /**
+     * 提取缓存命中 token（兼容三厂商 Usage 结构）：
+     * OpenAI prompt_tokens_details.cached_tokens / DeepSeek prompt_cache_hit_tokens /
+     * Anthropic cache_read_input_tokens；均缺失时返回 0.
+     */
+    private long resolveCachedTokens(JsonNode usage) {
+        long hit = usage.path("prompt_tokens_details").path("cached_tokens").asLong(-1);
+        if (hit < 0) {
+            hit = usage.path("prompt_cache_hit_tokens").asLong(-1);
+        }
+        if (hit < 0) {
+            hit = usage.path("cache_read_input_tokens").asLong(0);
+        }
+        return Math.max(hit, 0);
+    }
+
+    private void captureUsage(JsonNode usage, AtomicLong prompt, AtomicLong completion, AtomicLong total,
+                              AtomicLong cached, AtomicLong cacheWrite) {
         long p = usage.path("prompt_tokens").asLong(0);
         long c = usage.path("completion_tokens").asLong(0);
         long t = usage.path("total_tokens").asLong(0);
         prompt.set(Math.max(prompt.get(), p));
         completion.set(Math.max(completion.get(), c));
         total.set(Math.max(total.get(), t == 0 ? p + c : t));
+        cached.set(Math.max(cached.get(), resolveCachedTokens(usage)));
+        cacheWrite.set(Math.max(cacheWrite.get(), usage.path("cache_creation_input_tokens").asLong(0)));
     }
 
     private String readFully(InputStream in) throws IOException {
@@ -266,6 +292,8 @@ public class UpstreamProxyService {
         private long promptTokens;
         private long completionTokens;
         private long totalTokens;
+        private long cachedTokens;
+        private long cacheWriteTokens;
         private long estimatedCompletionTokens;
 
         public boolean isSuccess() { return success; }
@@ -280,6 +308,10 @@ public class UpstreamProxyService {
         public void setCompletionTokens(long completionTokens) { this.completionTokens = completionTokens; }
         public long getTotalTokens() { return totalTokens; }
         public void setTotalTokens(long totalTokens) { this.totalTokens = totalTokens; }
+        public long getCachedTokens() { return cachedTokens; }
+        public void setCachedTokens(long cachedTokens) { this.cachedTokens = cachedTokens; }
+        public long getCacheWriteTokens() { return cacheWriteTokens; }
+        public void setCacheWriteTokens(long cacheWriteTokens) { this.cacheWriteTokens = cacheWriteTokens; }
         public long getEstimatedCompletionTokens() { return estimatedCompletionTokens; }
         public void setEstimatedCompletionTokens(long estimatedCompletionTokens) { this.estimatedCompletionTokens = estimatedCompletionTokens; }
     }
@@ -294,6 +326,8 @@ public class UpstreamProxyService {
         private long promptTokens;
         private long completionTokens;
         private long totalTokens;
+        private long cachedTokens;
+        private long cacheWriteTokens;
 
         public String getResponseBody() { return responseBody; }
         public void setResponseBody(String responseBody) { this.responseBody = responseBody; }
@@ -307,5 +341,9 @@ public class UpstreamProxyService {
         public void setCompletionTokens(long completionTokens) { this.completionTokens = completionTokens; }
         public long getTotalTokens() { return totalTokens; }
         public void setTotalTokens(long totalTokens) { this.totalTokens = totalTokens; }
+        public long getCachedTokens() { return cachedTokens; }
+        public void setCachedTokens(long cachedTokens) { this.cachedTokens = cachedTokens; }
+        public long getCacheWriteTokens() { return cacheWriteTokens; }
+        public void setCacheWriteTokens(long cacheWriteTokens) { this.cacheWriteTokens = cacheWriteTokens; }
     }
 }

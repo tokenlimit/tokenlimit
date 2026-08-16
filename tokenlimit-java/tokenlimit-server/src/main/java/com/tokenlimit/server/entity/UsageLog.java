@@ -2,10 +2,17 @@ package com.tokenlimit.server.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 
+import java.math.BigDecimal;
+
 /**
- * 用量日志（V5.0）.
+ * 用量日志（V5.0 / 计费快照 V5.3 / 缓存计费 V5.4）.
  * <p>V5 同时记录预估值（estimated_*）与供应商真实值（*_tokens），并通过 usage_source 标识当前记录来自哪一侧；</p>
  * <p>当预估值与真实值偏差超过阈值时标记 anomaly_detected 并记录 anomaly_detail。</p>
+ * <p>计费快照（Billing Snapshot）：写入后费用、单价、汇率永久固化，后续修改价格/汇率只影响新调用；
+ * 报表必须基于 cost 字段 SUM 聚合，不得用当前价格动态重算历史数据。</p>
+ * <p>缓存计费（V5.4）：cached_tokens（OpenAI cached_tokens / DeepSeek prompt_cache_hit_tokens /
+ * Anthropic cache_read_input_tokens）按缓存读取单价计费，cache_write_tokens（Anthropic
+ * cache_creation_input_tokens）按缓存写入单价计费；缓存单价同样固化为快照。</p>
  */
 @TableName("tl_usage_log")
 public class UsageLog extends BaseEntity {
@@ -46,8 +53,38 @@ public class UsageLog extends BaseEntity {
     /** 供应商真实总 tokens */
     private Long totalTokens;
 
-    /** 费用（MVP 阶段可为 0） */
-    private Long cost;
+    /** 计费快照：本位币费用（如 CNY，核心扣费/报表字段，写入后不可变） */
+    private BigDecimal cost;
+
+    /** 计费快照：原始币种费用（如 USD） */
+    private BigDecimal costOriginal;
+
+    /** 计费快照：模型原始计价币种（USD / CNY） */
+    private String currency;
+
+    /** 计费快照：调用时输入单价（每 Token） */
+    private BigDecimal inputPriceSnapshot;
+
+    /** 计费快照：调用时输出单价（每 Token） */
+    private BigDecimal outputPriceSnapshot;
+
+    /** 计费快照：调用时汇率（原始币种→本位币） */
+    private BigDecimal exchangeRateSnapshot;
+
+    /** 计费快照：企业本位币 */
+    private String baseCurrency;
+
+    /** 缓存命中 token（OpenAI cached_tokens / DeepSeek prompt_cache_hit_tokens / Anthropic cache_read_input_tokens） */
+    private Long cachedTokens;
+
+    /** 缓存写入 token（Anthropic cache_creation_input_tokens） */
+    private Long cacheWriteTokens;
+
+    /** 计费快照：调用时缓存读取单价（每 Token，未配置为 null） */
+    private BigDecimal cacheReadPriceSnapshot;
+
+    /** 计费快照：调用时缓存写入单价（每 Token，未配置为 null） */
+    private BigDecimal cacheWritePriceSnapshot;
 
     /** 额度消耗来源：TEAM / USER */
     private String consumeFrom;
@@ -160,12 +197,92 @@ public class UsageLog extends BaseEntity {
         this.totalTokens = totalTokens;
     }
 
-    public Long getCost() {
+    public BigDecimal getCost() {
         return cost;
     }
 
-    public void setCost(Long cost) {
+    public void setCost(BigDecimal cost) {
         this.cost = cost;
+    }
+
+    public BigDecimal getCostOriginal() {
+        return costOriginal;
+    }
+
+    public void setCostOriginal(BigDecimal costOriginal) {
+        this.costOriginal = costOriginal;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
+    }
+
+    public BigDecimal getInputPriceSnapshot() {
+        return inputPriceSnapshot;
+    }
+
+    public void setInputPriceSnapshot(BigDecimal inputPriceSnapshot) {
+        this.inputPriceSnapshot = inputPriceSnapshot;
+    }
+
+    public BigDecimal getOutputPriceSnapshot() {
+        return outputPriceSnapshot;
+    }
+
+    public void setOutputPriceSnapshot(BigDecimal outputPriceSnapshot) {
+        this.outputPriceSnapshot = outputPriceSnapshot;
+    }
+
+    public BigDecimal getExchangeRateSnapshot() {
+        return exchangeRateSnapshot;
+    }
+
+    public void setExchangeRateSnapshot(BigDecimal exchangeRateSnapshot) {
+        this.exchangeRateSnapshot = exchangeRateSnapshot;
+    }
+
+    public String getBaseCurrency() {
+        return baseCurrency;
+    }
+
+    public void setBaseCurrency(String baseCurrency) {
+        this.baseCurrency = baseCurrency;
+    }
+
+    public Long getCachedTokens() {
+        return cachedTokens;
+    }
+
+    public void setCachedTokens(Long cachedTokens) {
+        this.cachedTokens = cachedTokens;
+    }
+
+    public Long getCacheWriteTokens() {
+        return cacheWriteTokens;
+    }
+
+    public void setCacheWriteTokens(Long cacheWriteTokens) {
+        this.cacheWriteTokens = cacheWriteTokens;
+    }
+
+    public BigDecimal getCacheReadPriceSnapshot() {
+        return cacheReadPriceSnapshot;
+    }
+
+    public void setCacheReadPriceSnapshot(BigDecimal cacheReadPriceSnapshot) {
+        this.cacheReadPriceSnapshot = cacheReadPriceSnapshot;
+    }
+
+    public BigDecimal getCacheWritePriceSnapshot() {
+        return cacheWritePriceSnapshot;
+    }
+
+    public void setCacheWritePriceSnapshot(BigDecimal cacheWritePriceSnapshot) {
+        this.cacheWritePriceSnapshot = cacheWritePriceSnapshot;
     }
 
     public String getConsumeFrom() {

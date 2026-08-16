@@ -64,7 +64,8 @@
 | **并发模型** | **虚拟线程 (Virtual Threads)** | 替代传统 Tomcat 线程池，轻松支撑万级并发流式请求。 |
 | **HTTP 转发** | **Java 21 HttpClient / Apache HttpClient 5** | **必须配置连接池**。推荐 Java 原生 HttpClient（默认复用，轻量）。 |
 | **实时配额** | **Redis 7.x** | 双 key：`balance` 真实余额（来自 MySQL 聚合，原子扣减）+ `pre` 预扣量（原子 INCRBY/DECRBY），无需 Lua。 |
-| **持久化** | **MySQL 8.0** | 存储 `usage_log` 事实表、团队/用户/配额配置。 |
+| **计费引擎** | **MySQL 价格表 + 计费快照（V5.3）** | `tl_model_price` 存每 Token 单价（可配置、改价即生效）；调用结束后动态计算费用并按多币种汇率折算到本位币，单价/汇率/费用固化到 `usage_log` 快照字段，历史费用不可变。 |
+| **持久化** | **MySQL 8.0** | 存储 `usage_log` 事实表（含计费快照）、团队/用户/配额配置/模型价格。 |
 | **预估引擎** | **jtokkit** | 统一 Token 预估基准，用于异常检测与中断兜底。 |
 | **前端框架** | **Vue 3 / React + Vite** | 现代单页应用（SPA），开发阶段独立运行。 |
 | **构建集成** | **Maven + frontend-maven-plugin** | **前后端一体化打包核心**，自动将前端产物嵌入后端 Jar 包。 |

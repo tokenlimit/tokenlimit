@@ -42,6 +42,19 @@
           </el-select>
         </el-form-item>
 
+        <el-divider content-position="left">计费设置（V5.3 计费快照）</el-divider>
+        <el-form-item label="企业本位币">
+          <el-select v-model="form.base_currency" style="width: 200px">
+            <el-option label="CNY（人民币）" value="CNY" />
+            <el-option label="USD（美元）" value="USD" />
+          </el-select>
+          <div class="form-tip">财务报表与 usage_log.cost 统一换算到该币种</div>
+        </el-form-item>
+        <el-form-item label="USD → CNY 汇率">
+          <el-input-number v-model="usdToCnyRate" :min="0" :precision="4" :step="0.1" />
+          <div class="form-tip">USD 计价模型折算为本位币的汇率；修改只影响新调用，历史账单费用不变</div>
+        </el-form-item>
+
         <el-form-item>
           <el-button type="primary" :loading="saving" @click="handleSave">保存设置</el-button>
           <el-button @click="loadSettings">重置</el-button>
@@ -66,7 +79,9 @@ const form = reactive<SettingsMap>({
   default_model: 'gpt-4o-mini',
   alert_threshold: '80',
   audit_retention: '90',
-  notify_channel: 'dingtalk'
+  notify_channel: 'dingtalk',
+  base_currency: 'CNY',
+  usd_to_cny_rate: '7.2'
 })
 
 const safeFactor = computed({
@@ -80,6 +95,13 @@ const alertThreshold = computed({
   get: () => Number(form.alert_threshold || 0),
   set: (v: number | undefined) => {
     form.alert_threshold = String(v ?? 0)
+  }
+})
+
+const usdToCnyRate = computed({
+  get: () => Number(form.usd_to_cny_rate || 7.2),
+  set: (v: number | undefined) => {
+    form.usd_to_cny_rate = String(v ?? 7.2)
   }
 })
 

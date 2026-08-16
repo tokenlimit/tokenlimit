@@ -811,6 +811,22 @@ Team 是成本中心。
 所有调用成本最终归属到 Team。
 ```
 
+### 12.4 计费快照（V5.3 / 缓存计费 V5.4）
+
+```text
+计费公式：cost = 正常输入 × input_price_per_token + 缓存命中 × cache_read_price_per_token
+               + 缓存写入 × cache_write_price_per_token + 输出 × output_price_per_token
+        正常输入 = prompt_tokens - cached_tokens - cache_write_tokens（缓存 token 不超过输入总量）
+缓存计费（V5.4）：cached_tokens 兼容解析三厂商 Usage 字段——
+        OpenAI prompt_tokens_details.cached_tokens / DeepSeek prompt_cache_hit_tokens /
+        Anthropic cache_read_input_tokens；cache_write_tokens 解析 Anthropic cache_creation_input_tokens；
+        未配置缓存单价时按正常输入价计费（等价无折扣）。
+多币种：按 tl_setting 全局汇率（usd_to_cny_rate 等）折算到企业本位币（base_currency），默认 CNY。
+固化学：调用结束写入 usage_log 时，单价、汇率、费用、缓存用量一次性固化（计费快照），
+       修改价格/汇率只影响新调用，历史账单费用不变。
+兜底：模型未配置价格 → 按 0 费用处理；汇率缺失 → 按 1:1 兜底并记录日志。
+```
+
 ---
 
 ## 13. 审计日志
@@ -1026,8 +1042,21 @@ CREATE TABLE tl_usage_log (
     completion_tokens BIGINT NULL,
     total_tokens BIGINT NULL,
 
-    -- 费用
-    cost DECIMAL(18,6) NULL,
+    -- 计费快照（Billing Snapshot，V5.3）：写入后费用/单价/汇率永久固化，
+    -- 后续修改价格/汇率只影响新调用；报表必须 SUM(cost)，不得用当前价格动态重算历史数据
+    currency VARCHAR(16) NOT NULL DEFAULT 'CNY',
+    input_price_snapshot DECIMAL(18,10) NOT NULL DEFAULT 0,
+    output_price_snapshot DECIMAL(18,10) NOT NULL DEFAULT 0,
+    exchange_rate_snapshot DECIMAL(18,6) NOT NULL DEFAULT 1,
+    base_currency VARCHAR(16) NOT NULL DEFAULT 'CNY',
+    cost_original DECIMAL(18,6) NOT NULL DEFAULT 0,
+    cost DECIMAL(18,6) NOT NULL DEFAULT 0,
+
+    -- 缓存计费（V5.4）：缓存用量与缓存单价快照（同样不可变，报表据此计算命中率与节省金额）
+    cached_tokens BIGINT NOT NULL DEFAULT 0,
+    cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+    cache_read_price_snapshot DECIMAL(18,10) NULL,
+    cache_write_price_snapshot DECIMAL(18,10) NULL,
 
     -- 扣减来源
     consume_from VARCHAR(32) NULL,
@@ -1073,6 +1102,36 @@ CREATE TABLE tl_audit_log (
     KEY idx_team (team_code, created_at)
 );
 ```
+
+### 14.11 tl_model_price（V5.3 计费基准表）
+
+```sql
+CREATE TABLE tl_model_price (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    provider VARCHAR(64) NOT NULL,
+    model VARCHAR(128) NOT NULL,
+
+    -- 价格单位：每 1 个 Token 的单价（避免计算时频繁除以 1000000）
+    input_price_per_token DECIMAL(18,10) NOT NULL DEFAULT 0,
+    output_price_per_token DECIMAL(18,10) NOT NULL DEFAULT 0,
+    cache_read_price_per_token DECIMAL(18,10) NULL,
+    cache_write_price_per_token DECIMAL(18,10) NULL,
+
+    currency VARCHAR(16) NOT NULL DEFAULT 'CNY',
+    status VARCHAR(32) NOT NULL DEFAULT 'ENABLED',
+    effective_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(64) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_provider_model (provider, model)
+);
+```
+
+> 价格表只是随时可变的"字典"，只负责给**新的请求**提供计算依据；历史费用以 usage_log 计费快照为准。
+> 未配置价格的模型按 0 费用处理（允许调用，控制台应告警提示无法统计成本）。
+> 缓存单价（cache_read/write_price_per_token）为可选项，厂商参考折扣：OpenAI 缓存读取为输入价 5 折、
+> Anthropic 缓存读取 1 折 / 缓存写入为输入价 1.25 倍、DeepSeek 缓存读取约 1 折；
+> 未配置时缓存 token 按正常输入价计费。缓存单价同样固化为 usage_log 快照，改价不影响历史账单。
 
 ---
 

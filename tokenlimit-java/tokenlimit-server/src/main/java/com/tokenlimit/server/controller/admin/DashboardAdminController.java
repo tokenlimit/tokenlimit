@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -50,7 +52,8 @@ public class DashboardAdminController {
     }
 
     /**
-     * 统计概览：团队数 / 用户数 / Key 数 / 规则数 / 今日 Token / 今日调用数.
+     * 统计概览：团队数 / 用户数 / Key 数 / 规则数 / 今日 Token / 今日调用数 /
+     * 今日费用（SUM(cost) 计费快照）/ 今日缓存命中率 / 今日缓存节省金额.
      */
     @GetMapping("/stats")
     public Result<Map<String, Object>> stats() {
@@ -68,6 +71,35 @@ public class DashboardAdminController {
         long users = userMapper.selectCount(null);
         long apiKeys = apiKeyMapper.selectCount(null);
 
+        // 计费快照聚合（V5.3）：今日费用 = SUM(cost)，历史不可变
+        BigDecimal todayCost = todayLogs.stream()
+                .map(l -> l.getCost() == null ? BigDecimal.ZERO : l.getCost())
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 缓存指标（V5.4）：命中率 = SUM(cached_tokens) / SUM(prompt_tokens)
+        // 节省金额 = SUM(cached × (输入单价 - 缓存读取单价) × 汇率)，基于快照计算，与当前价格无关
+        long todayPromptTokens = todayLogs.stream()
+                .mapToLong(l -> l.getPromptTokens() == null ? 0 : l.getPromptTokens())
+                .sum();
+        long todayCachedTokens = todayLogs.stream()
+                .mapToLong(l -> l.getCachedTokens() == null ? 0 : l.getCachedTokens())
+                .sum();
+        double todayCacheHitRate = todayPromptTokens > 0
+                ? Math.round(todayCachedTokens * 10000.0 / todayPromptTokens) / 100.0 : 0.0;
+        BigDecimal todayCacheSaved = BigDecimal.ZERO;
+        for (UsageLog l : todayLogs) {
+            Long cached = l.getCachedTokens();
+            BigDecimal readPrice = l.getCacheReadPriceSnapshot();
+            BigDecimal inputPrice = l.getInputPriceSnapshot();
+            if (cached == null || cached <= 0 || readPrice == null || inputPrice == null) {
+                continue;
+            }
+            BigDecimal rate = l.getExchangeRateSnapshot() == null
+                    ? BigDecimal.ONE : l.getExchangeRateSnapshot();
+            todayCacheSaved = todayCacheSaved.add(
+                    BigDecimal.valueOf(cached).multiply(inputPrice.subtract(readPrice)).multiply(rate));
+        }
+
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("totalTeams", teams);
         data.put("totalQuotas", rules);
@@ -75,7 +107,9 @@ public class DashboardAdminController {
         data.put("totalApiKeys", apiKeys);
         data.put("todayTokens", todayTokens);
         data.put("todayCalls", todayCalls);
-        data.put("todayCost", 0);
+        data.put("todayCost", todayCost.setScale(6, RoundingMode.HALF_UP));
+        data.put("todayCacheHitRate", todayCacheHitRate);
+        data.put("todayCacheSavedCost", todayCacheSaved.setScale(6, RoundingMode.HALF_UP));
         return Result.success(data);
     }
 

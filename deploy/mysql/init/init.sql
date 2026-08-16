@@ -210,11 +210,17 @@ CREATE TABLE IF NOT EXISTS `tl_team_model_policy` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='团队模型策略表';
 
 -- -------------------------------------------------------------
--- 7. tl_usage_log Token 使用日志（PRD V5.0）
+-- 7. tl_usage_log Token 使用日志（PRD V5.0 / 计费快照 V5.3 / 缓存计费 V5.4）
 --    estimated_*: jtokkit 预估（check 阶段与结算阶段）
 --    usage_source: PROVIDER（厂商真实值）/ ESTIMATED（本地预估值）
 --    status: SUCCESS / INTERRUPTED / ERROR / FAILED / CANCELLED
 --    anomaly_detected: 预估值与真实值偏差超过阈值标记 1
+--    计费快照（Billing Snapshot，核心不可变字段）：写入后费用永久固化，
+--    后续修改价格/汇率只影响新调用；报表必须 SUM(cost) 不得动态重算
+--    缓存计费（V5.4）：cached_tokens（OpenAI cached_tokens / DeepSeek
+--    prompt_cache_hit_tokens / Anthropic cache_read_input_tokens）按缓存读取
+--    单价计费，cache_write_tokens（Anthropic cache_creation_input_tokens）按
+--    缓存写入单价计费；未配置缓存单价时按正常输入价兜底；单价同样固化为快照
 -- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `tl_usage_log` (
   `id`                        BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -230,7 +236,17 @@ CREATE TABLE IF NOT EXISTS `tl_usage_log` (
   `prompt_tokens`             BIGINT        NOT NULL DEFAULT 0 COMMENT '供应商真实输入 token',
   `completion_tokens`         BIGINT        NOT NULL DEFAULT 0 COMMENT '供应商真实输出 token',
   `total_tokens`              BIGINT        NOT NULL DEFAULT 0 COMMENT '供应商真实总 token',
-  `cost`                      DECIMAL(18,6) NOT NULL DEFAULT 0 COMMENT '费用（元）',
+  `currency`                  VARCHAR(16)   NOT NULL DEFAULT 'CNY' COMMENT '计费快照：模型原始计价币种（USD/CNY）',
+  `input_price_snapshot`      DECIMAL(18,10) NOT NULL DEFAULT 0 COMMENT '计费快照：调用时输入单价（每 Token）',
+  `output_price_snapshot`     DECIMAL(18,10) NOT NULL DEFAULT 0 COMMENT '计费快照：调用时输出单价（每 Token）',
+  `exchange_rate_snapshot`    DECIMAL(18,6) NOT NULL DEFAULT 1 COMMENT '计费快照：调用时汇率（原始币种→本位币）',
+  `base_currency`             VARCHAR(16)   NOT NULL DEFAULT 'CNY' COMMENT '计费快照：企业本位币',
+  `cost_original`             DECIMAL(18,6) NOT NULL DEFAULT 0 COMMENT '计费快照：原始币种费用（如 USD）',
+  `cost`                      DECIMAL(18,6) NOT NULL DEFAULT 0 COMMENT '计费快照：本位币费用（如 CNY，核心扣费/报表字段）',
+  `cached_tokens`             BIGINT        NOT NULL DEFAULT 0 COMMENT '缓存命中 token（OpenAI cached_tokens / DeepSeek prompt_cache_hit_tokens / Anthropic cache_read_input_tokens）',
+  `cache_write_tokens`        BIGINT        NOT NULL DEFAULT 0 COMMENT '缓存写入 token（Anthropic cache_creation_input_tokens）',
+  `cache_read_price_snapshot` DECIMAL(18,10) DEFAULT NULL COMMENT '计费快照：调用时缓存读取单价（每 Token，未配置为 NULL）',
+  `cache_write_price_snapshot` DECIMAL(18,10) DEFAULT NULL COMMENT '计费快照：调用时缓存写入单价（每 Token，未配置为 NULL）',
   `consume_from`              VARCHAR(32)   NOT NULL DEFAULT 'TEAM' COMMENT '额度消耗来源：TEAM/USER',
   `usage_source`              VARCHAR(32)   NOT NULL DEFAULT 'PROVIDER' COMMENT '记录来源：PROVIDER/ESTIMATED',
   `status`                    VARCHAR(32)   NOT NULL DEFAULT 'SUCCESS' COMMENT '状态：SUCCESS/INTERRUPTED/ERROR/FAILED/CANCELLED',
@@ -299,20 +315,29 @@ INSERT INTO `tl_setting` (`setting_key`, `setting_value`, `description`) VALUES
   ('audit_retention', '90',                      '审计日志保留时间（天）'),
   ('notify_channel',  'dingtalk',                '告警通知渠道'),
   ('login_fail_limit','5',                       '登录失败锁定阈值（次）'),
-  ('login_fail_lock_minutes','30',               '登录失败锁定时长（分钟）');
+  ('login_fail_lock_minutes','30',               '登录失败锁定时长（分钟）'),
+  ('base_currency',   'CNY',                     '企业本位币（财务报表与 cost 统一换算到该币种）'),
+  ('usd_to_cny_rate', '7.2',                     '汇率：USD→CNY（计费快照时固化到 usage_log，修改只影响新调用）');
 
 -- -------------------------------------------------------------
 -- 10. tl_model_price 模型价格表（模型列表与价格基准）
---     价格单位：元 / 百万 tokens
+--     价格单位：每 1 个 Token 的单价（避免计算时频繁除以 1000000）
+--     计费公式：cost = prompt_tokens × input_price_per_token + completion_tokens × output_price_per_token
+--     缓存计费（V5.4）：输入成本 = (prompt - cached - write) × 输入价 + cached × 缓存读取价 + write × 缓存写入价；
+--     未配置缓存单价时，缓存 token 按正常输入价计费（等价无折扣）
+--     修改价格只影响新调用（usage_log 已固化为计费快照，历史费用不可变）
 -- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `tl_model_price` (
   `id`            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
   `provider`      VARCHAR(64)   NOT NULL COMMENT '供应商编码，如 openai/anthropic/deepseek',
   `model`         VARCHAR(128)  NOT NULL COMMENT '模型名称',
-  `input_price`   DECIMAL(12,6) NOT NULL DEFAULT 0 COMMENT '输入单价（元/百万token）',
-  `output_price`  DECIMAL(12,6) NOT NULL DEFAULT 0 COMMENT '输出单价（元/百万token）',
-  `currency`      VARCHAR(16)   NOT NULL DEFAULT 'CNY' COMMENT '币种',
+  `input_price_per_token`   DECIMAL(18,10) NOT NULL DEFAULT 0 COMMENT '输入单价（每 Token）',
+  `output_price_per_token`  DECIMAL(18,10) NOT NULL DEFAULT 0 COMMENT '输出单价（每 Token）',
+  `cache_read_price_per_token`  DECIMAL(18,10) DEFAULT NULL COMMENT '缓存读取单价（如 Anthropic Prompt Caching，预留）',
+  `cache_write_price_per_token` DECIMAL(18,10) DEFAULT NULL COMMENT '缓存写入单价（预留）',
+  `currency`      VARCHAR(16)   NOT NULL DEFAULT 'CNY' COMMENT '币种：USD/CNY',
   `status`        VARCHAR(32)   NOT NULL DEFAULT 'ENABLED' COMMENT '状态：ENABLED/DISABLED',
+  `effective_at`  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '生效时间（记录最近一次改价时间，价格即改即生效）',
   `created_by`    VARCHAR(64)   DEFAULT NULL COMMENT '创建人',
   `created_at`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -320,12 +345,22 @@ CREATE TABLE IF NOT EXISTS `tl_model_price` (
   UNIQUE KEY `uk_provider_model` (`provider`, `model`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='模型价格表';
 
--- 模型价格示例（元/百万token）
-INSERT INTO `tl_model_price` (`provider`, `model`, `input_price`, `output_price`) VALUES
-  ('openai',     'gpt-4o',          15.000000, 60.000000),
-  ('openai',     'gpt-4o-mini',      0.150000,  0.600000),
-  ('anthropic',  'claude-3-5-sonnet',20.000000, 100.000000),
-  ('deepseek',   'deepseek-chat',    1.000000,  2.000000);
+-- 模型价格示例（每 Token 单价，参考 2024 底/2025 初官方定价，上线前需核对最新价格）
+-- 换算：每百万 Tokens 价格 ÷ 1,000,000；缓存价按厂商折扣（OpenAI 5 折、Anthropic 读 1 折/写 1.25 倍、DeepSeek 1 折）
+INSERT INTO `tl_model_price` (`provider`, `model`, `input_price_per_token`, `output_price_per_token`, `cache_read_price_per_token`, `cache_write_price_per_token`, `currency`) VALUES
+  -- DeepSeek（CNY/百万：chat 1.00/2.00，缓存读取 1 折 0.10；reasoner 4.00/16.00，缓存读取 0.40）
+  ('deepseek',   'deepseek-chat',      0.0000010000, 0.0000020000, 0.0000001000, NULL, 'CNY'),
+  ('deepseek',   'deepseek-reasoner',  0.0000040000, 0.0000160000, 0.0000004000, NULL, 'CNY'),
+  -- OpenAI（USD/百万：gpt-4o 2.50/10.00，缓存读取 5 折 1.25；gpt-4o-mini 0.15/0.60，缓存读取 0.075）
+  ('openai',     'gpt-4o',             0.0000025000, 0.0000100000, 0.0000012500, NULL, 'USD'),
+  ('openai',     'gpt-4o-mini',        0.0000001500, 0.0000006000, 0.0000000750, NULL, 'USD'),
+  -- Anthropic（USD/百万：claude-3-5-sonnet 3.00/15.00，缓存读取 1 折 0.30，缓存写入 1.25 倍 3.75）
+  ('anthropic',  'claude-3-5-sonnet',  0.0000030000, 0.0000150000, 0.0000003000, 0.0000037500, 'USD'),
+  -- 阿里云百炼（CNY/百万：qwen-max 20.00/60.00，qwen-turbo 2.00/6.00）
+  ('qwen',       'qwen-max',           0.0000200000, 0.0000600000, NULL, NULL, 'CNY'),
+  ('qwen',       'qwen-turbo',         0.0000020000, 0.0000060000, NULL, NULL, 'CNY'),
+  -- 智谱 GLM-4-Flash（免费）
+  ('zhipu',      'glm-4-flash',       0.0000000000, 0.0000000000, NULL, NULL, 'CNY');
 
 -- =============================================================
 -- 测试数据

@@ -8,6 +8,10 @@ export interface DashboardStats {
   todayTokens: number
   todayCalls: number
   todayCost: number
+  /** 今日缓存命中率（%，V5.4） */
+  todayCacheHitRate: number
+  /** 今日缓存节省金额（本位币，V5.4） */
+  todayCacheSavedCost: number
 }
 
 export interface TrendPoint {

@@ -4,10 +4,17 @@ export interface ModelPrice {
   id?: number
   provider?: string
   model?: string
-  inputPrice?: number
-  outputPrice?: number
+  /** 输入单价（每 Token） */
+  inputPricePerToken?: number
+  /** 输出单价（每 Token） */
+  outputPricePerToken?: number
+  /** 缓存读取单价（未配置为 null，按正常输入价计费） */
+  cacheReadPricePerToken?: number | null
+  /** 缓存写入单价（未配置为 null，按正常输入价计费） */
+  cacheWritePricePerToken?: number | null
   currency?: string
   status?: string
+  effectiveAt?: string
   createdBy?: string
   createdAt?: string
   updatedAt?: string

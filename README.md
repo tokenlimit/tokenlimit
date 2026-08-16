@@ -56,6 +56,15 @@ POST /v1/embeddings         # 可选
 配额周期：MINUTE / HOUR / DAY / WEEK / MONTH / YEAR / TOTAL
 ```
 
+**计费与成本（V5.3 计费快照 / V5.4 缓存计费）**：调用结束后按 `tl_model_price` 价格表动态计算费用——
+`cost = 正常输入 × 输入单价 + 缓存命中 × 缓存读取单价 + 缓存写入 × 缓存写入单价 + 输出 × 输出单价`
+（价格表可配置，单位每 Token，未配置按 0；缓存命中/写入 token 自动解析 OpenAI `cached_tokens`、DeepSeek
+`prompt_cache_hit_tokens`、Anthropic `cache_read/cache_creation_input_tokens`，未配缓存单价按正常输入价兜底）；
+USD 计价模型按系统汇率（`usd_to_cny_rate`，默认 7.2）折算到企业本位币（`base_currency`，默认 CNY）；
+Dashboard 展示今日费用、缓存命中率与缓存节省金额。
+单价、汇率、费用在写入 `usage_log` 时一次性**固化（计费快照）**——修改价格/汇率只影响新调用，
+历史账单费用不可变，报表必须 `SUM(cost)` 聚合。
+
 User 级 `quota_mode`（默认 `PERSONAL_FIRST_THEN_TEAM`）：
 
 ```text

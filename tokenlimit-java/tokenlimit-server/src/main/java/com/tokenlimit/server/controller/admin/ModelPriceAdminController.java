@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /**
  * 管理端：模型价格管理（对账中心 - 价格管理，PRD Phase 4）.
@@ -79,11 +80,11 @@ public class ModelPriceAdminController {
             throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "该供应商/模型价格已存在");
         }
         modelPrice.setId(null);
-        if (modelPrice.getInputPrice() == null) {
-            modelPrice.setInputPrice(BigDecimal.ZERO);
+        if (modelPrice.getInputPricePerToken() == null) {
+            modelPrice.setInputPricePerToken(BigDecimal.ZERO);
         }
-        if (modelPrice.getOutputPrice() == null) {
-            modelPrice.setOutputPrice(BigDecimal.ZERO);
+        if (modelPrice.getOutputPricePerToken() == null) {
+            modelPrice.setOutputPricePerToken(BigDecimal.ZERO);
         }
         if (!StringUtils.hasText(modelPrice.getCurrency())) {
             modelPrice.setCurrency("CNY");
@@ -91,18 +92,21 @@ public class ModelPriceAdminController {
         if (!StringUtils.hasText(modelPrice.getStatus())) {
             modelPrice.setStatus("ENABLED");
         }
+        modelPrice.setEffectiveAt(LocalDateTime.now());
         modelPrice.setCreatedBy("console");
         modelPriceMapper.insert(modelPrice);
         return Result.success(modelPriceMapper.selectById(modelPrice.getId()));
     }
 
     /**
-     * 更新模型价格.
+     * 更新模型价格（改价只影响新调用：usage_log 计费快照已固化历史费用）.
      */
     @PutMapping("/{id}")
     public Result<ModelPrice> update(@PathVariable Long id, @RequestBody ModelPrice modelPrice) {
         require(id);
         modelPrice.setId(id);
+        // 改价即生效：刷新 effective_at 记录本次改价时间
+        modelPrice.setEffectiveAt(LocalDateTime.now());
         modelPriceMapper.updateById(modelPrice);
         return Result.success(modelPriceMapper.selectById(id));
     }
