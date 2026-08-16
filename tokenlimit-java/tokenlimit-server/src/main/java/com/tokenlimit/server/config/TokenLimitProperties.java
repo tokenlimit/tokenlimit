@@ -3,6 +3,9 @@ package com.tokenlimit.server.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * TokenLimit 服务端配置项.
  */
@@ -32,8 +35,10 @@ public class TokenLimitProperties {
     private String hashPepper = "tokenlimit-dev-only-hash-pepper-change-me-in-production";
     /** Redis 故障降级（可用性优先）：true 时 Redis 异常按默认值放行，false 时抛出 */
     private boolean redisFallbackEnabled = true;
-    /** 配额检查模式：PREDUCT 预扣减（严格，防并发超卖）/ CHECK_ONLY 仅检查不扣减（宽松，并发下最后几次请求可能同时放行） */
-    private String quotaCheckMode = "PREDUCT";
+    /** 预计算拦截开关：true 时调用前真实余额 - 预扣值 &gt; 0 才放行，结束后回滚预扣；false 时仅判断余额，并发下可能超支 1 次调用 */
+    private boolean quotaPrecomputeEnabled = true;
+    /** 配额拦截责任链（按顺序执行，任一拦截即拒绝）：team-balance / user-balance / usage-period */
+    private List<String> quotaChain = new ArrayList<>(List.of("team-balance", "user-balance", "usage-period"));
     /** OpenAI Compatible 网关接口级限流 */
     private RateLimit rateLimit = new RateLimit();
     /** 上游 HTTP 客户端（连接池由 JVM 统一管理，配置化超时） */
@@ -119,12 +124,20 @@ public class TokenLimitProperties {
         this.redisFallbackEnabled = redisFallbackEnabled;
     }
 
-    public String getQuotaCheckMode() {
-        return quotaCheckMode;
+    public boolean isQuotaPrecomputeEnabled() {
+        return quotaPrecomputeEnabled;
     }
 
-    public void setQuotaCheckMode(String quotaCheckMode) {
-        this.quotaCheckMode = quotaCheckMode;
+    public void setQuotaPrecomputeEnabled(boolean quotaPrecomputeEnabled) {
+        this.quotaPrecomputeEnabled = quotaPrecomputeEnabled;
+    }
+
+    public List<String> getQuotaChain() {
+        return quotaChain;
+    }
+
+    public void setQuotaChain(List<String> quotaChain) {
+        this.quotaChain = quotaChain;
     }
 
     public RateLimit getRateLimit() {

@@ -3,7 +3,7 @@
 -- 数据库：tokenlimit
 -- 字符集：utf8mb4
 -- 模型：团队(Team) -> 用户(User) -> API Key
--- 配额：预扣减模型（PREDUCT 默认：check 按 jtokkit 预估量 Lua 原子预扣，report 回滚预扣 + 累加真实值；可切换 CHECK_ONLY 简单计数器）
+-- 配额：责任链拦截（team-balance 团队余额 / user-balance 个人余额 / usage-period 周期用量，可配置）+ 预计算开关（开启时调用前原子预扣 jtokkit 预估量，结束后回滚预扣、按真实值扣减余额）
 -- 角色：ADMIN / TEAM_ADMIN / USER
 -- 状态值：统一 ENABLED / DISABLED（API Key 额外支持 EXPIRED / REVOKED）
 -- 网关：OpenAI Compatible Proxy + Provider 凭证(GLOBAL/TEAM) + 团队模型策略
@@ -92,10 +92,10 @@ CREATE TABLE IF NOT EXISTS `tl_api_key` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='API Key 表';
 
 -- -------------------------------------------------------------
--- 4. tl_quota_rule 配额规则（PRD V5.1 预扣减模型）
+-- 4. tl_quota_rule 配额规则（PRD V5.2 责任链拦截模型）
 --    规则描述「谁(target_type+target_code) + 哪个模型(model) + 哪种额度(limit_type) + 限额(limit_value) + 周期(period)」
 --    limit_type: TOKEN（token 数）/ COST（金额）/ REQUEST_COUNT（请求次数）
---    period: DAY / MONTH / TOTAL
+--    period: MINUTE / HOUR / DAY / WEEK / MONTH / TOTAL
 --    状态：ENABLED / DISABLED
 -- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `tl_quota_rule` (

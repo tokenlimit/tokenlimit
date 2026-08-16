@@ -42,9 +42,11 @@ logging:
 tokenlimit:
   # Redis key 前缀
   redis-prefix: tokenlimit:quota
-  # 配额检查模式：PREDUCT=预扣减（严格，防并发超卖）/ CHECK_ONLY=仅检查不扣减（宽松，并发下最后几次请求可能同时放行）
-  quota-check-mode: preduct
-  # check 上下文（含预扣记录）保留时间（秒），report 需在此时间内上报；超时未上报的预扣残留随周期 key 过期自动清理
+  # 预计算拦截开关：true=调用大模型前按预估量原子预扣（真实余额 - 预扣值 > 0 才放行），结束后回滚预扣、按真实用量扣减；false=仅判断余额不预扣，并发下最后几次请求可能同时放行
+  quota-precompute-enabled: true
+  # 配额拦截责任链（按顺序执行，任一拦截即拒绝）：team-balance=团队余额 / user-balance=个人余额 / usage-period=周期用量（月/周/日/时/分，含每次请求限次）
+  quota-chain: team-balance,user-balance,usage-period
+  # check 上下文保留时间（秒），report 需在此时间内上报；超时未上报的预扣残留随周期 key 过期自动清理
   check-context-ttl-seconds: 3600
   # 单次调用预估 token 上限，超出则拒绝（防止异常大额预扣）
   max-estimated-tokens: 1000000

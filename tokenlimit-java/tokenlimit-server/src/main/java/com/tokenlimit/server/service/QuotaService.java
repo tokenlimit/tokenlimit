@@ -20,6 +20,10 @@ import com.tokenlimit.server.repository.mapper.QuotaRuleMapper;
 import com.tokenlimit.server.repository.mapper.TeamMapper;
 import com.tokenlimit.server.repository.mapper.UsageLogMapper;
 import com.tokenlimit.server.repository.mapper.UserMapper;
+import com.tokenlimit.server.service.quota.QuotaCheckContext;
+import com.tokenlimit.server.service.quota.QuotaDenied;
+import com.tokenlimit.server.service.quota.QuotaInterceptor;
+import com.tokenlimit.server.service.quota.QuotaUsageAggregator;
 import com.tokenlimit.server.service.redis.QuotaRedisService;
 import com.tokenlimit.server.util.SecretUtils;
 import org.slf4j.Logger;
@@ -36,18 +40,31 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 配额核心服务（PRD V5.1）.
+ * 配额核心服务（PRD V5.2）.
  *
- * <p>双模式（{@code tokenlimit.quota-check-mode}）：</p>
+ * <p><b>责任链拦截</b>（{@code tokenlimit.quota-chain} 可配置顺序/裁剪，任一环节拒绝即拦截）：</p>
  * <ul>
- *   <li><b>PREDUCT（默认，严格）</b>：check 阶段逐条规则 Lua 原子预扣（used + pre + est &gt; limit 拦截），
- *       防并发超卖；report 阶段回滚预扣、累加真实用量（jtokkit 预估 → 厂商真实 token）。</li>
- *   <li><b>CHECK_ONLY（宽松）</b>：check 只读 Redis used 判定（used ≥ limit 拦截），不预扣；
- *       并发下最后几次请求可能同时放行（超卖），report 阶段直接累加。</li>
+ *   <li>{@code team-balance}：Team 余额拦截（TOTAL 周期长期规则）</li>
+ *   <li>{@code user-balance}：个人余额拦截（TOTAL 周期长期规则，并确定抵扣来源 consumeFrom）</li>
+ *   <li>{@code usage-period}：周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE 规则，含"每次请求" REQUEST_COUNT 限次）</li>
  * </ul>
  *
- * <p>配额写入顺序：先写 MySQL（事实来源），后更新 Redis（实时缓存）。
- * Redis 预扣残留（check 后未 report）随周期 key TTL 自动清理。</p>
+ * <p><b>预计算开关</b>（{@code tokenlimit.quota-precompute-enabled}）：</p>
+ * <ul>
+ *   <li><b>true（默认）</b>：调用大模型前按 jtokkit 预估量原子预扣（真实余额 - 预扣值 &gt; 0 才放行），
+ *       调用结束后回滚预扣、按厂商返回真实 token 扣减余额；并发下存在极小窗口超支 1 次调用（可接受）。</li>
+ *   <li><b>false</b>：仅判断余额不预扣，并发下最后几次请求可能同时放行（超卖）。</li>
+ * </ul>
+ *
+ * <p><b>Redis 双 key</b>（均缓存 Long 值，key 含 targetCode 即 userId/teamId）：</p>
+ * <ul>
+ *   <li><b>balance</b>：真实余额 = 配额上限 - 真实用量（来自 MySQL usage_log 聚合，首次访问时写入缓存，
+ *       report 阶段原子扣减保持实时），周期 TTL 滚动重建。</li>
+ *   <li><b>pre</b>：进行中请求的预扣总量（本次请求预估量凭空写入，原子 INCRBY/DECRBY 控制，无需 Lua）。</li>
+ * </ul>
+ *
+ * <p>余额变更发生在调用大模型结束（写 usage_log 后）：先写 MySQL（事实来源），后更新 Redis（实时缓存）。
+ * 预扣残留（check 后未 report）随周期 key TTL 自动清理。</p>
  */
 @Service
 public class QuotaService {
@@ -63,12 +80,17 @@ public class QuotaService {
     private final TokenLimitProperties properties;
     private final UsageLogAsyncService usageLogAsyncService;
     private final ApiKeyMetricsService apiKeyMetricsService;
+    private final QuotaUsageAggregator quotaUsageAggregator;
+    /** 配额拦截责任链（按 tokenlimit.quota-chain 配置顺序执行） */
+    private final LinkedHashMap<String, QuotaInterceptor> chain;
 
     public QuotaService(QuotaRuleMapper quotaRuleMapper, UsageLogMapper usageLogMapper,
                         ApiKeyMapper apiKeyMapper, TeamMapper teamMapper, UserMapper userMapper,
                         QuotaRedisService quotaRedisService, TokenLimitProperties properties,
                         UsageLogAsyncService usageLogAsyncService,
-                        ApiKeyMetricsService apiKeyMetricsService) {
+                        ApiKeyMetricsService apiKeyMetricsService,
+                        QuotaUsageAggregator quotaUsageAggregator,
+                        List<QuotaInterceptor> interceptors) {
         this.quotaRuleMapper = quotaRuleMapper;
         this.usageLogMapper = usageLogMapper;
         this.apiKeyMapper = apiKeyMapper;
@@ -78,6 +100,18 @@ public class QuotaService {
         this.properties = properties;
         this.usageLogAsyncService = usageLogAsyncService;
         this.apiKeyMetricsService = apiKeyMetricsService;
+        this.quotaUsageAggregator = quotaUsageAggregator;
+        Map<String, QuotaInterceptor> byName = new LinkedHashMap<>();
+        for (QuotaInterceptor interceptor : interceptors) {
+            byName.put(interceptor.name(), interceptor);
+        }
+        this.chain = new LinkedHashMap<>();
+        for (String name : properties.getQuotaChain()) {
+            QuotaInterceptor interceptor = byName.get(name);
+            if (interceptor != null) {
+                chain.put(name, interceptor);
+            }
+        }
     }
 
     /**
@@ -92,12 +126,8 @@ public class QuotaService {
 
     /**
      * 配额检查（调用大模型前）.
-     * <p>V5.1 双模式：</p>
-     * <ul>
-     *   <li>PREDUCT：先判断剩余额度（limit - used - pre）&gt; 0，再按 jtokkit 预估量原子预扣；
-     *       任一规则预扣后剩余 &lt; 0 即拦截，并回滚已预扣规则。</li>
-     *   <li>CHECK_ONLY：只读 used 判断（剩余 &lt; 0 拦截），不扣减；并发下最后一次请求可能漏拦。</li>
-     * </ul>
+     * <p>V5.2 责任链拦截：按 {@code tokenlimit.quota-chain} 顺序执行拦截器，任一拒绝即返回；
+     * 全部通过后（预计算开关开启时）对适用规则按 jtokkit 预估量原子预扣。</p>
      *
      * @param accessKey               access key
      * @param secret                  secret（双向校验）
@@ -132,46 +162,37 @@ public class QuotaService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        boolean preduct = isPreductMode();
+        boolean precompute = properties.isQuotaPrecomputeEnabled();
 
-        // 第一步：Team 配额（PREDUCT 预扣 / CHECK_ONLY 只读检查）
+        // 解析 Team / User 配额规则（含全模型规则与指定模型规则，仅 ENABLED）
         List<QuotaRule> teamRules = resolveRules(TargetType.TEAM, teamCode, model);
-        String deniedTeam = preduct ? preDeductRules(teamRules, now, estimatedTotalTokens)
-                : checkAll(teamRules, now);
-        if (deniedTeam != null) {
-            return CheckResult.denied(ErrorCode.TEAM_QUOTA_EXCEEDED.name(), deniedTeam);
-        }
-
-        // 第二步：按 User.quotaMode 决定抵扣来源
-        String quotaMode = StringUtils.hasText(user.getQuotaMode()) ? user.getQuotaMode() : "PERSONAL_FIRST_THEN_TEAM";
-        String consumeFrom;
         List<QuotaRule> userRules = resolveRules(TargetType.USER, userCode, model);
+        String quotaMode = StringUtils.hasText(user.getQuotaMode()) ? user.getQuotaMode() : "PERSONAL_FIRST_THEN_TEAM";
+        QuotaCheckContext ctx = new QuotaCheckContext(apiKey, quotaMode, teamRules, userRules,
+                estimatedTotalTokens, precompute, now);
 
-        switch (quotaMode) {
-            case "PERSONAL_ONLY" -> {
-                String deniedUser = preduct ? preDeductRules(userRules, now, estimatedTotalTokens)
-                        : checkAll(userRules, now);
-                if (deniedUser != null) {
-                    return CheckResult.denied(ErrorCode.USER_QUOTA_EXCEEDED.name(), deniedUser);
-                }
-                consumeFrom = "PERSONAL";
-            }
-            case "TEAM_ONLY" -> consumeFrom = "TEAM";
-            default -> {
-                // PERSONAL_FIRST_THEN_TEAM：个人额度足够走个人，否则团队兜底（团队已检查/预扣）
-                String deniedUser = preduct ? preDeductRules(userRules, now, estimatedTotalTokens)
-                        : checkAll(userRules, now);
-                consumeFrom = deniedUser == null ? "PERSONAL" : "TEAM";
+        // 责任链拦截：任一环节拒绝即返回（顺序由 tokenlimit.quota-chain 配置）
+        for (QuotaInterceptor interceptor : chain.values()) {
+            QuotaDenied denied = interceptor.check(ctx);
+            if (denied != null) {
+                return CheckResult.denied(denied.reason(), denied.message());
             }
         }
 
-        // 生成 traceId 并保存 check 上下文（含检查模式，report 时按模式结算）
+        // 统一预扣（预计算开关开启时）：对适用规则按预估量原子 INCRBY
+        if (precompute) {
+            preDeductApplied(ctx);
+        }
+
+        String consumeFrom = StringUtils.hasText(ctx.getConsumeFrom()) ? ctx.getConsumeFrom() : "TEAM";
+
+        // 生成 traceId 并保存 check 上下文（含预计算标记，report 时按标记结算）
         String traceId = genTraceId();
         List<QuotaRule> appliedRules = mergeRules(userRules, teamRules);
         quotaRedisService.saveCheckContext(traceId,
                 buildContext(teamCode, apiKey.getKeyId(), userCode, model,
                         estimatedPromptTokens, estimatedCompletionTokens, estimatedTotalTokens,
-                        consumeFrom, appliedRules));
+                        consumeFrom, appliedRules, precompute));
 
         CheckResult result = CheckResult.allowed(traceId, consumeFrom,
                 readMinRemain(appliedRules, now));
@@ -183,9 +204,9 @@ public class QuotaService {
 
     /**
      * 用量上报（大模型调用完成后）.
-     * <p>V5.1：异步写 usage_log（事实来源），再按检查模式更新 Redis：
-     * PREDUCT 回滚预扣 + 累加真实用量（厂商返回真实 token 数）；CHECK_ONLY 仅累加。
-     * usage_source 区分 PROVIDER / ESTIMATED，并对预估偏差做异常检测。</p>
+     * <p>V5.2：异步写 usage_log（事实来源，余额变更发生在此刻），再更新 Redis：
+     * 预计算开启时先回滚预扣（与 check 预扣量一致），再按真实 token 原子扣减余额；
+     * 关闭时仅扣减余额。usage_source 区分 PROVIDER / ESTIMATED，并对预估偏差做异常检测。</p>
      */
     public ReportResult report(String traceId, String accessKey, String secret, String model,
                                long promptTokens, long completionTokens, long totalTokens,
@@ -198,7 +219,7 @@ public class QuotaService {
             throw new BusinessException(ErrorCode.TRACE_NOT_FOUND);
         }
         String[] parts = context.split("\\|");
-        // parts: team|apiKeyId|user|model|estPrompt|estCompletion|estTotal|consumeFrom|rules
+        // parts: team|apiKeyId|user|model|estPrompt|estCompletion|estTotal|consumeFrom|rules|precomputed
         String teamCode = parts[0];
         String apiKeyId = parts[1];
         if (!StringUtils.hasText(apiKeyId) || !apiKeyId.equals(apiKey.getKeyId())) {
@@ -210,8 +231,9 @@ public class QuotaService {
         long estTotal = parts.length > 6 ? Long.parseLong(parts[6]) : 0;
         String consumeFrom = parts.length > 7 ? parts[7] : "TEAM";
         String rulesInfo = parts.length > 8 ? parts[8] : "";
-        // 检查模式（parts[9]，旧上下文无此字段时按 CHECK_ONLY 处理，避免误回滚）
-        String checkMode = parts.length > 9 ? parts[9] : "CHECK_ONLY";
+        // 预计算标记（parts[9]）：PRECOMPUTE=check 已预扣需回滚 / CHECK_ONLY=未预扣；
+        // 旧上下文（V5.1 PREDUCT）按 PRECOMPUTE 处理（pre key 结构相同，回滚兼容）；V5.0 无此字段不回滚
+        boolean precomputed = parts.length > 9 && !"CHECK_ONLY".equalsIgnoreCase(parts[9]);
 
         String usageStatus = StringUtils.hasText(status) ? status : UsageStatus.SUCCESS.name();
         boolean interrupted = UsageStatus.INTERRUPTED.name().equals(usageStatus);
@@ -244,7 +266,7 @@ public class QuotaService {
             }
         }
 
-        // 写入 usage_log（先写 MySQL）
+        // 写入 usage_log（先写 MySQL，余额变更发生在此刻）
         UsageLog usageLog = new UsageLog();
         usageLog.setTraceId(traceId);
         usageLog.setTeamCode(teamCode);
@@ -267,15 +289,10 @@ public class QuotaService {
         // 异步写入 usage_log（避免阻塞网关请求线程）
         usageLogAsyncService.saveUsageLog(usageLog);
 
-        // 后更新 Redis（PREDUCT：回滚预扣 + 累加真实用量；CHECK_ONLY：仅累加）
+        // 后更新 Redis：先回滚预扣（若预扣过），再按真实用量扣减余额
         LocalDateTime now = LocalDateTime.now();
         List<QuotaRule> rules = parseRules(rulesInfo);
-        if ("PREDUCT".equalsIgnoreCase(checkMode)) {
-            // 无条件结算：即使无真实用量（statTokens=0，如鉴权失败/流中断）也要回滚预扣，避免预扣残留
-            settlePreduct(rules, now, statTokens, estTotal, consumeFrom);
-        } else if (statTokens > 0) {
-            accumulate(rules, now, statTokens, consumeFrom);
-        }
+        settle(rules, now, statTokens, estTotal, consumeFrom, precomputed);
 
         quotaRedisService.deleteCheckContext(traceId);
 
@@ -337,110 +354,42 @@ public class QuotaService {
     }
 
     /**
-     * CHECK_ONLY 模式检查：任一规则 used ≥ limit 即视为超限，返回拒绝说明；全部通过返回 null.
-     * <p>Redis 异常时根据 {@code tokenlimit.redis-fallback-enabled} 配置决定降级策略：
-     * 启用时放行（可用性优先），禁用时抛出异常（一致性优先）。</p>
+     * 统一预扣（check 放行后，预计算开关开启时）：对适用规则按预估量原子 INCRBY.
+     * <p>预扣量 = jtokkit 预估总 token（REQUEST_COUNT 规则为 1）；consumeFrom=TEAM 时跳过个人规则
+     * （团队兜底，个人额度不动，与结算语义一致）。预扣值凭空写入 pre key（周期 TTL），report 时回滚。</p>
      */
-    private String checkAll(List<QuotaRule> rules, LocalDateTime now) {
-        if (rules.isEmpty()) {
-            return null;
+    private void preDeductApplied(QuotaCheckContext ctx) {
+        String consumeFrom = ctx.getConsumeFrom();
+        for (QuotaRule rule : ctx.getTeamRules()) {
+            preDeductOne(rule, ctx, consumeFrom);
         }
-        for (QuotaRule rule : rules) {
-            Period period = Period.valueOf(rule.getPeriod());
-            long limit = rule.getLimitValue().longValue();
-            long used;
-            try {
-                used = quotaRedisService.readUsed(
-                        rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now);
-            } catch (Exception e) {
-                log.warn("Redis 配额读取失败，降级策略: {}",
-                        properties.isRedisFallbackEnabled() ? "放行" : "拒绝", e);
-                if (properties.isRedisFallbackEnabled()) {
-                    continue; // Redis 故障时放行（可用性优先）
-                }
-                throw e; // Redis 故障时拒绝（一致性优先）
-            }
-            if (used >= limit) {
-                return "配额超限: " + rule.getTargetType() + "/" + rule.getTargetCode()
-                        + " " + period + " 已用 " + used + " 上限 " + limit;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * report 阶段累加：按规则 limitType 累加（TOKEN 累加 token 数，REQUEST_COUNT 累加 1）.
-     * <p>consumeFrom=PERSONAL 时同时累加 Team 与 User；=TEAM 时仅累加 Team。</p>
-     * <p>Redis 异常时记录日志但不中断流程（MySQL 是事实来源，Redis 可后续恢复）。</p>
-     */
-    private void accumulate(List<QuotaRule> rules, LocalDateTime now,
-                            long statTokens, String consumeFrom) {
-        for (QuotaRule rule : rules) {
-            boolean userRule = "USER".equalsIgnoreCase(rule.getTargetType());
-            // consumeFrom=TEAM 时仅累加团队规则（团队兜底，个人额度不动）
-            if (userRule && "TEAM".equals(consumeFrom)) {
-                continue;
-            }
-            long amount = LimitType.REQUEST_COUNT.name().equals(rule.getLimitType()) ? 1 : statTokens;
-            Period period = Period.valueOf(rule.getPeriod());
-            try {
-                quotaRedisService.addUsed(rule.getTargetType(), rule.getTargetCode(),
-                        rule.getLimitType(), period, now, amount);
-            } catch (Exception e) {
-                log.error("Redis 配额累加失败 rule={}:{}, amount={}",
-                        rule.getTargetType(), rule.getTargetCode(), amount, e);
-                // Redis 故障时不中断流程，MySQL 已持久化，Redis 可后续从 MySQL 恢复
+        if ("PERSONAL".equals(consumeFrom)) {
+            for (QuotaRule rule : ctx.getUserRules()) {
+                preDeductOne(rule, ctx, consumeFrom);
             }
         }
     }
 
-    /**
-     * PREDUCT 模式预扣（check 阶段）：逐条规则 Lua 原子预扣（used + pre + est &gt; limit 拒绝）.
-     * <p>预扣量 = jtokkit 预估总 token（REQUEST_COUNT 规则为 1）。任一规则拒绝时回滚已预扣规则；
-     * limit ≤ 0 视为配置异常，不预扣也不拦截。全部成功返回 null。</p>
-     */
-    private String preDeductRules(List<QuotaRule> rules, LocalDateTime now, long estTotal) {
-        if (rules.isEmpty()) {
-            return null;
+    private void preDeductOne(QuotaRule rule, QuotaCheckContext ctx, String consumeFrom) {
+        boolean userRule = "USER".equalsIgnoreCase(rule.getTargetType());
+        if (userRule && "TEAM".equals(consumeFrom)) {
+            return; // 团队兜底：个人额度不动
         }
-        List<QuotaRule> deducted = new ArrayList<>();
-        for (QuotaRule rule : rules) {
-            long amount = LimitType.REQUEST_COUNT.name().equals(rule.getLimitType()) ? 1 : estTotal;
-            Period period = Period.valueOf(rule.getPeriod());
-            int result = quotaRedisService.preDeduct(rule.getTargetType(), rule.getTargetCode(),
-                    rule.getLimitType(), period, now, amount, rule.getLimitValue().longValue());
-            if (result == 0) {
-                // 预扣后剩余 < 0：回滚已预扣规则，返回拒绝
-                rollbackPreRules(deducted, now, estTotal);
-                return "配额超限: " + rule.getTargetType() + "/" + rule.getTargetCode()
-                        + " " + period + " 已用+预扣 超过上限 " + rule.getLimitValue().longValue();
-            }
-            if (result == 2) {
-                continue; // limit ≤ 0 配置异常：不预扣、不拦截
-            }
-            deducted.add(rule);
-        }
-        return null;
+        long amount = amountFor(rule, ctx.getEstTotal());
+        Period period = Period.valueOf(rule.getPeriod());
+        // 原子 INCRBY 控制预扣值；Redis 异常时 addPre 内部已按 redis-fallback-enabled 降级
+        quotaRedisService.addPre(rule.getTargetType(), rule.getTargetCode(),
+                rule.getLimitType(), period, ctx.getNow(), amount);
     }
 
     /**
-     * 回滚已预扣规则（check 拒绝 / PERSONAL_FIRST_THEN_TEAM 转团队兜底时补偿）.
+     * 结算（report 阶段）：先回滚预扣（预计算开启时），再按真实用量原子扣减余额.
+     * <p>consumeFrom=PERSONAL 时同时结算 Team 与 User；=TEAM 时仅结算 Team（团队兜底，个人额度不动）。</p>
+     * <p>余额扣减前惰性初始化 balance（key 缺失/负值时从 MySQL 聚合重建），保证扣减落盘；
+     * Redis 异常只记录日志不中断流程（MySQL 已持久化，余额可从 MySQL 重新聚合恢复）。</p>
      */
-    private void rollbackPreRules(List<QuotaRule> rules, LocalDateTime now, long estTotal) {
-        for (QuotaRule rule : rules) {
-            long amount = LimitType.REQUEST_COUNT.name().equals(rule.getLimitType()) ? 1 : estTotal;
-            Period period = Period.valueOf(rule.getPeriod());
-            quotaRedisService.rollbackPre(rule.getTargetType(), rule.getTargetCode(),
-                    rule.getLimitType(), period, now, amount);
-        }
-    }
-
-    /**
-     * PREDUCT 模式结算（report 阶段）：回滚预扣（与 check 预扣量一致）+ 累加真实用量.
-     * <p>consumeFrom=PERSONAL 时同时结算 Team 与 User；=TEAM 时仅结算 Team（与 {@link #accumulate} 语义一致）。</p>
-     */
-    private void settlePreduct(List<QuotaRule> rules, LocalDateTime now,
-                               long statTokens, long estTotal, String consumeFrom) {
+    private void settle(List<QuotaRule> rules, LocalDateTime now, long statTokens,
+                        long estTotal, String consumeFrom, boolean precomputed) {
         for (QuotaRule rule : rules) {
             boolean userRule = "USER".equalsIgnoreCase(rule.getTargetType());
             // consumeFrom=TEAM 时仅结算团队规则（团队兜底，个人额度不动）
@@ -451,18 +400,45 @@ public class QuotaService {
             long rollback = requestCount ? 1 : estTotal;
             long actual = requestCount ? 1 : statTokens;
             Period period = Period.valueOf(rule.getPeriod());
-            quotaRedisService.adjust(rule.getTargetType(), rule.getTargetCode(),
-                    rule.getLimitType(), period, now, rollback, actual);
+            String targetType = rule.getTargetType();
+            String targetCode = rule.getTargetCode();
+            String limitType = rule.getLimitType();
+
+            // 1) 回滚预扣（与 check 预扣量一致）
+            if (precomputed) {
+                quotaRedisService.rollbackPre(targetType, targetCode, limitType, period, now, rollback);
+            }
+
+            // 2) 真实扣减余额（balance = limit - used，扣减发生在调用结束）
+            if (actual <= 0) {
+                continue;
+            }
+            try {
+                long balance = quotaRedisService.readBalance(targetType, targetCode, limitType, period, now);
+                if (balance < 0) {
+                    long init = rule.getLimitValue().longValue() - quotaUsageAggregator.aggregateUsed(
+                            targetType, targetCode, limitType, period, now);
+                    quotaRedisService.initBalanceIfAbsent(targetType, targetCode, limitType, period, now, init);
+                }
+                quotaRedisService.addBalance(targetType, targetCode, limitType, period, now, -actual);
+            } catch (Exception e) {
+                log.error("Redis 余额扣减失败 rule={}:{}, amount={}",
+                        targetType, targetCode, actual, e);
+                // Redis 故障时不中断流程，MySQL 已持久化，余额可从 MySQL 重新聚合恢复
+            }
         }
     }
 
-    private boolean isPreductMode() {
-        return "PREDUCT".equalsIgnoreCase(properties.getQuotaCheckMode());
+    /**
+     * 本次规则扣减量：REQUEST_COUNT 规则为 1，其余为预估总 token.
+     */
+    private long amountFor(QuotaRule rule, long estTotal) {
+        return LimitType.REQUEST_COUNT.name().equals(rule.getLimitType()) ? 1 : estTotal;
     }
 
     private String buildContext(String teamCode, String apiKeyId, String userCode, String model,
                                 long estPrompt, long estCompletion, long estTotal,
-                                String consumeFrom, List<QuotaRule> rules) {
+                                String consumeFrom, List<QuotaRule> rules, boolean precompute) {
         StringBuilder sb = new StringBuilder();
         sb.append(teamCode).append('|')
                 .append(StringUtils.hasText(apiKeyId) ? apiKeyId : "").append('|')
@@ -484,7 +460,7 @@ public class QuotaService {
                     .append(rule.getLimitValue().longValue());
         }
         sb.append('|').append(rulesSb)
-                .append('|').append(isPreductMode() ? "PREDUCT" : "CHECK_ONLY");
+                .append('|').append(precompute ? "PRECOMPUTE" : "CHECK_ONLY");
         return sb.toString();
     }
 
@@ -515,6 +491,10 @@ public class QuotaService {
         return rules;
     }
 
+    /**
+     * 读取全部适用规则的最小剩余额度（balance - pre），用于 check/report 响应展示.
+     * <p>Redis 缓存缺失/负值时从 MySQL 聚合重建；Redis 故障时返回 -1（未知），不中断主流程。</p>
+     */
     private long readMinRemain(List<QuotaRule> rules, LocalDateTime now) {
         if (rules.isEmpty()) {
             return -1;
@@ -522,13 +502,22 @@ public class QuotaService {
         long minRemain = Long.MAX_VALUE;
         for (QuotaRule rule : rules) {
             Period period = Period.valueOf(rule.getPeriod());
-            long used = quotaRedisService.readUsed(
-                    rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now);
-            long pre = quotaRedisService.readPreUsed(
-                    rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now);
             long limit = rule.getLimitValue().longValue();
-            // 剩余额度 = limit - used - pre（PREDUCT 模式 pre 为进行中预扣；CHECK_ONLY 模式 pre 恒为 0）
-            minRemain = Math.min(minRemain, Math.max(limit - used - pre, 0));
+            try {
+                long balance = quotaRedisService.readBalance(
+                        rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now);
+                if (balance < 0) {
+                    balance = limit - quotaUsageAggregator.aggregateUsed(
+                            rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now);
+                }
+                long pre = quotaRedisService.readPre(
+                        rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now);
+                // 剩余额度 = balance - pre（预计算关闭时 pre 恒为 0）
+                minRemain = Math.min(minRemain, Math.max(balance - pre, 0));
+            } catch (Exception e) {
+                log.warn("Redis 剩余额度读取失败, rule={}:{}", rule.getTargetType(), rule.getTargetCode(), e);
+                return -1;
+            }
         }
         return minRemain == Long.MAX_VALUE ? -1 : minRemain;
     }

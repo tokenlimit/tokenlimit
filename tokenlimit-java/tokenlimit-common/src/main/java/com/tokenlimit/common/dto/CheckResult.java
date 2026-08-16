@@ -3,9 +3,9 @@ package com.tokenlimit.common.dto;
 import java.io.Serializable;
 
 /**
- * 配额检查结果（PRD V5.1）.
- * <p>V5.1 双模式：PREDUCT（默认）check 阶段按预估量 Lua 原子预扣（剩余 &lt; 0 拦截），
- * report 阶段回滚预扣、按实际用量累加；CHECK_ONLY 模式 check 只读不预扣。</p>
+ * 配额检查结果（PRD V5.2）.
+ * <p>V5.2 责任链拦截 + 预计算开关：开启时 check 按 jtokkit 预估量原子预扣（真实余额 - 预扣值 &lt;= 0 拦截），
+ * report 阶段回滚预扣、按真实用量扣减余额；关闭时 check 只读余额不预扣。</p>
  */
 public class CheckResult implements Serializable {
 

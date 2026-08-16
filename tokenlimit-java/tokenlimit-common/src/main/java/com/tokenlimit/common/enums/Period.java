@@ -7,6 +7,7 @@ public enum Period {
     MINUTE,
     HOUR,
     DAY,
+    WEEK,
     MONTH,
     TOTAL
 }

@@ -1,84 +1,89 @@
-# 配额模型（V5.1）
+# 配额模型（V5.2）
 
-## 概述
+Token Limit 使用 **责任链拦截 + Redis 双 key（balance / pre）** 的配额模型，**无需 Lua 脚本**，预计算开关可配置。
 
-Token Limit 使用 **Redis 双 key + Lua 原子脚本** 的配额模型，支持两种拦截策略（配置项 `tokenlimit.quota-check-mode`，默认 `PREDUCT`）。
-
-## 双拦截策略
+## 1. 总体流程
 
 ```text
-PREDUCT（默认，严格）：
-  调用前：判断剩余额度（limit - used - pre）> 0
-          按 jtokkit 预估量预扣：pre += est_tokens（Lua 原子）
-          任一规则预扣后剩余 < 0 → 拦截（回滚已预扣规则）
-  调用后：回滚预扣 pre -= est_tokens
-          按厂商真实值累加 used += actual_tokens
-  并发安全性：预扣与检查在同一个 Lua 脚本内完成，天然防并发超卖
+调用大模型前（check）：
+  1. 责任链拦截（tokenlimit.quota-chain 可配置顺序/裁剪，任一拦截即拒绝）：
+     team-balance   团队余额拦截（TOTAL 周期长期规则）
+     user-balance   个人余额拦截（TOTAL 周期长期规则，并确定抵扣来源 consumeFrom）
+     usage-period   周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE 规则，含"每次请求" REQUEST_COUNT 限次）
+  2. 预计算开关（tokenlimit.quota-precompute-enabled，默认开启）：
+     开启：对适用规则按 jtokkit 预估量原子预扣（INCRBY pre），预扣值凭空写入
+     关闭：不预扣，仅判断余额
 
-CHECK_ONLY（宽松）：
-  调用前：检查 used >= limit？拦截 : 放行（不预扣）
-  调用后：used += actual_tokens
-  并发下最后一次请求可能同时放行（超卖）
+调用大模型结束后（report）：
+  1. 写 MySQL usage_log（事实来源，余额变更发生在此刻）
+  2. 预计算开启：回滚预扣（DECRBY pre，减到 0 删 key）
+  3. 按厂商返回真实 token 原子扣减余额（DECRBY balance）
 ```
 
-预扣值 = jtokkit 预估总 token（`REQUEST_COUNT` 规则为 1）。
+## 2. Redis 双 key（均缓存 Long 值，key 含 targetCode 即 userId/teamId）
 
-## Redis Key 结构
+| key 段 | 语义 | 来源 | 写入时机 |
+| --- | --- | --- | --- |
+| `balance` | 真实余额 = limit - 真实用量 | 真实用量来自 MySQL usage_log 聚合 | 首次访问时计算写入缓存（惰性初始化）；report 阶段原子扣减保持实时；周期 TTL 滚动重建 |
+| `pre` | 进行中请求的预扣总量 | 本次请求按预估量计算得出（凭空写入） | check 阶段原子 INCRBY；report 阶段 DECRBY 回滚 |
+
+Key 结构：
 
 ```text
-{prefix}:quota:used:{targetType}:{targetCode}:{limitType}:{period}:{timeKey}
-{prefix}:quota:pre:{targetType}:{targetCode}:{limitType}:{period}:{timeKey}
+{prefix}:quota:{balance|pre}:{targetType}:{targetCode}:{limitType}:{period}:{timeKey}
 ```
-
-- `used`：已完成调用的真实用量，与 MySQL `usage_log` 聚合一致；
-- `pre`：进行中请求的预扣总量（PREDUCT 模式）；
-- `targetType`：`team` / `user`；
-- `timeKey`：周期时间片（DAY 为 `yyyyMMdd`，MONTH 为 `yyyyMM`，TOTAL 为 `total`）。
 
 示例：
 
 ```text
-tokenlimit:quota:used:team:team-rd:TOKEN:DAY:20260813
+tokenlimit:quota:balance:team:team-rd:TOKEN:DAY:20260813
 tokenlimit:quota:pre:team:team-rd:TOKEN:DAY:20260813
+tokenlimit:quota:pre:user:user-001:TOKEN:WEEK:2026W33
+tokenlimit:quota:pre:team:team-rd:REQUEST_COUNT:HOUR:2026081614
 ```
 
-两个 key 均设置周期剩余时间 TTL；周期滚动时自动清零。
-预扣残留（check 后未 report）随周期 key TTL 自动清理；check 上下文在 `check-context-ttl-seconds`（默认 3600 秒）后过期。
+`timeKey` 即周期时间片：MINUTE `yyyyMMddHHmm` / HOUR `yyyyMMddHH` / DAY `yyyyMMdd` / WEEK `yyyy'W'ww`（ISO 周）/ MONTH `yyyyMM` / TOTAL `total`。
 
-## Lua 脚本
+## 3. 拦截判定（责任链拦截器）
 
-| 脚本 | 阶段 | 语义 |
+检查公式（预计算开关开启时）：
+
+```text
+balance - pre - est_tokens > 0   → 放行
+balance - pre - est_tokens <= 0  → 拦截（余额不足）
+```
+
+- `balance` 为真实余额：优先读 Redis 缓存；key 缺失/负值（首次访问、周期滚动、并发超支残留）时从 MySQL 聚合重建（`limit - 聚合用量`）。
+- `pre` 为进行中请求的预扣总量（预计算关闭时视为 0）。
+- `est_tokens` 为本次预估量：TOKEN/COST 规则用 jtokkit 预估总 token，REQUEST_COUNT 规则为 1。
+
+余额不足时返回拒绝（错误码 + 超限详情），责任链后续环节不再执行。
+
+## 4. 预计算开关语义
+
+| 开关 | check 行为 | report 行为 | 并发安全性 |
+| --- | --- | --- | --- |
+| 开启（默认，严格） | 检查通过后原子预扣预估量 | 回滚预扣 + 按真实值扣减余额 | 存在极小窗口超支 1 次调用（团队调用可能并发透支 Team 额度，可接受） |
+| 关闭（宽松） | 仅判断余额不预扣 | 仅按真实值扣减余额 | 并发下最后几次请求可能同时放行（超卖） |
+
+预扣值通过单个原子操作（INCRBY/DECRBY）控制，无需 Lua 脚本；并发下的窗口无法完全消除，属于已知取舍。
+
+## 5. 抵扣来源（consumeFrom）
+
+| quota_mode | consumeFrom | 预扣/结算范围 |
 | --- | --- | --- |
-| `lua/quota_deduct.lua` | check | `used + pre + delta > limit` 返回 0（拒绝），否则 `pre += delta` |
-| `lua/quota_adjust.lua` | report | `pre -= rollback`（减到 0 删 key），`used += actual`（首次创建设 TTL） |
+| PERSONAL_ONLY | 个人余额充足 = PERSONAL，不足 = 拒绝 | User + Team 规则 |
+| TEAM_ONLY | TEAM（跳过个人余额） | 仅 Team 规则 |
+| PERSONAL_FIRST_THEN_TEAM | 个人余额充足 = PERSONAL，不足 = TEAM 兜底 | PERSONAL：User + Team；TEAM：仅 Team |
 
-## check 流程
+## 6. 预扣残留清理
 
-```text
-1. 鉴权（accessKey + secret 双向校验，HMAC-SHA256 + pepper）
-2. 校验 Team / User 状态
-3. Team 规则：PREDUCT 逐条 Lua 原子预扣 / CHECK_ONLY 只读检查
-   任一失败 → 429 TEAM_QUOTA_EXCEEDED（PREDUCT 先回滚已预扣规则）
-4. 按 User.quota_mode 决定抵扣来源：
-   - PERSONAL_ONLY：User 规则预扣/检查，失败 → 429 USER_QUOTA_EXCEEDED
-   - TEAM_ONLY：consumeFrom = TEAM（不碰 User 规则）
-   - PERSONAL_FIRST_THEN_TEAM：User 预扣失败 → 回滚 User 预扣，团队兜底
-5. 保存 check 上下文（traceId → team/apiKeyId/user/model/预估/consumeFrom/规则/模式）
-```
+- pre key TTL = 周期剩余时间，周期滚动后自动清零。
+- check 上下文（含预扣记录）在 `check-context-ttl-seconds`（默认 3600 秒）后过期；超时未 report 的预扣残留随周期 key 过期自动清理。
+- 进程崩溃导致的预扣残留同样由周期 TTL 兜底，下一周期从 MySQL 重新聚合。
 
-## report 流程
+## 7. Redis 故障降级
 
-```text
-1. 读取 check 上下文（缺失 → TRACE_NOT_FOUND）
-2. 判定 usage_source（PROVIDER / ESTIMATED）与异常检测（偏差 > 50% 标记 anomaly）
-3. 先写 MySQL usage_log（事实来源，异步）
-4. 再更新 Redis（PREDUCT：settle 回滚预扣 + 累加真实值；CHECK_ONLY：仅累加）
-5. 删除 check 上下文
-```
-
-`consumeFrom=PERSONAL` 时同时结算 Team 与 User 规则；`=TEAM` 时仅结算 Team（团队兜底，个人额度不动）。
-
-## 与速率限制的区别
-
-- **速率限制**（rate limit）：限制每秒请求次数（`tokenlimit.rate-limit`，默认关闭）。
-- **配额控制**（quota）：限制累计/总可用资源量（token / 费用 / 次数）。
+- 拦截器读余额/预扣异常时：`redis-fallback-enabled=true` 放行（可用性优先），`false` 抛出（一致性优先）。
+- report 扣减异常：记录日志不中断流程（MySQL 已持久化，余额可从 MySQL 重新聚合恢复）。
+- pre key 为本次请求凭空写入，无历史数据，无需迁移；旧 `used` key（V5.1）自然过期。

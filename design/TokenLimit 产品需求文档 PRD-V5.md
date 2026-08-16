@@ -409,23 +409,26 @@ TokenLimit 对客户端统一暴露 OpenAI 兼容接口 (`/v1/chat/completions`)
 
 ### 7.1 配额模型
 
-V5.1 支持**双拦截策略**（配置项 `tokenlimit.quota-check-mode`）：
+V5.2 采用**责任链拦截 + 预计算开关**（拦截策略可配置，丰富用户个性化配置）：
 
 ```text
-PREDUCT（默认，严格）：
-  调用前：判断剩余额度（limit - used - pre）> 0，按 jtokkit 预估量预扣
-          pre += est_tokens；预扣后剩余 < 0 则拦截
-  调用后：回滚预扣 pre -= est_tokens，再按厂商真实值累加 used += actual_tokens
+调用大模型前，按配置链顺序拦截（任一拦截即拒绝）：
+  1. team-balance  团队余额拦截（TOTAL 周期长期规则）
+  2. user-balance  个人余额拦截（TOTAL 周期长期规则，并确定抵扣来源）
+  3. usage-period  周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE 规则，含"每次请求" REQUEST_COUNT 限次）
 
-CHECK_ONLY（宽松）：
-  调用前：检查 used >= limit？拦截 : 放行（不预扣）
-  调用后：used += actual_tokens
-  并发下最后一次请求可能同时放行（超卖）
+预计算开关（tokenlimit.quota-precompute-enabled，默认开启）：
+  开启（严格）：真实余额 - 预扣值 > 0 才放行，按 jtokkit 预估量原子预扣
+    余额变更发生在调用大模型结束（写 usage_log）时：回滚预扣，再按厂商真实值扣减余额
+    并发下存在极小窗口超支 1 次调用（团队调用可能并发透支 Team 额度，可接受）
+  关闭（宽松）：仅判断余额不预扣
+    并发下最后几次请求可能同时放行（超卖）
 ```
 
 预扣值 = jtokkit 预估总 token（REQUEST_COUNT 规则为 1）；
 等大模型 API 返回真实 token 后，回滚预扣、进行真实扣减。
 预扣残留（check 后未 report）随周期 key TTL 自动清理。
+预扣值与真实余额分开不同的 Redis key 缓存 Long 值，均用原子操作增减，无需 Lua 脚本。
 
 ### 7.2 配额对象
 
@@ -489,9 +492,9 @@ PERSONAL_FIRST_THEN_TEAM
 ### 7.7 本次超额处理
 
 ```text
-PREDUCT（默认）：预扣后剩余 < 0 直接拦截，不给本次超额空间。
-CHECK_ONLY（宽松）：本次调用导致 used 超过 limit 也允许完成，下次拦截。
-超额幅度 = 一次调用的 token 消耗，通常在可控范围内。
+预计算开启（默认）：调用前真实余额 - 预扣值 <= 0 直接拦截，不给本次超额空间。
+预计算关闭（宽松）：本次调用导致余额扣为负也允许完成，下次拦截。
+超额幅度 = 一次调用的 token 消耗（并发下可能超支 1 次调用），通常在可控范围内。
 ```
 
 ### 7.8 缓冲阈值
@@ -507,19 +510,21 @@ hard_limit = limit
 ### 7.9 Redis 数据结构
 
 ```text
-tokenlimit:quota:used:team:{team_code}:{limit_type}:{period}:{timeKey}
-tokenlimit:quota:used:user:{user_code}:{limit_type}:{period}:{timeKey}
+tokenlimit:quota:balance:team:{team_code}:{limit_type}:{period}:{timeKey}
+tokenlimit:quota:balance:user:{user_code}:{limit_type}:{period}:{timeKey}
 tokenlimit:quota:pre:team:{team_code}:{limit_type}:{period}:{timeKey}
 tokenlimit:quota:pre:user:{user_code}:{limit_type}:{period}:{timeKey}
 ```
 
-`used` 存已完成调用的真实用量（与 MySQL 聚合一致）；`pre` 存进行中请求的预扣总量（PREDUCT 模式）。
+`balance` 存真实余额 = 配额上限 - 真实用量（真实用量来自 MySQL usage_log 聚合，首次访问时计算写入缓存，report 阶段原子扣减保持实时，周期 TTL 滚动重建）；`pre` 存进行中请求的预扣总量（本次请求预估量凭空写入，原子 INCRBY/DECRBY 控制）。两个 key 均缓存 Long 值，key 天然包含 teamCode / userCode。
 
 示例：
 
 ```text
-tokenlimit:quota:used:team:team-rd:TOKEN:DAY:20260813
+tokenlimit:quota:balance:team:team-rd:TOKEN:DAY:20260813
 tokenlimit:quota:pre:team:team-rd:TOKEN:DAY:20260813
+tokenlimit:quota:pre:user:user-001:TOKEN:WEEK:2026W33
+tokenlimit:quota:pre:team:team-rd:REQUEST_COUNT:HOUR:2026081614
 ```
 
 ### 7.10 数据持久化
@@ -1262,8 +1267,8 @@ Team 成本看板增强。
 9. 客户端不直接持有真实供应商 API Key。
 10. Team Model Policy 决定 Team 能使用哪些模型。
 11. 第一版优先通过 OpenAI Compatible Proxy 接入 Cursor / DeepSeek Harness。
-12. 配额默认采用预扣减模型：调用前按 jtokkit 预估量预扣（Lua 原子），调用后回滚预扣、累加厂商真实值；也可切换为简单计数器（CHECK_ONLY）。
-13. 预扣后剩余不足即拦截（严格）；简单计数器模式下本次超额允许完成，下次拦截。
+12. 配额默认采用责任链拦截 + 预计算开关：调用前按 jtokkit 预估量原子预扣（真实余额 - 预扣值 > 0 放行），调用后回滚预扣、按厂商真实值扣减余额；关闭预计算则仅判断余额不扣减。
+13. 预计算开启时余额不足即拦截（严格，并发下可能超支 1 次调用）；关闭时本次超额允许完成，下次拦截。
 14. 统一使用 jtokkit 做 token 预估基准。
 15. usage_log 同时记录预估值和真实值。
 16. 正常情况以厂商真实 usage 为准。

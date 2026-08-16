@@ -3,9 +3,9 @@ package com.tokenlimit.server.entity;
 import com.baomidou.mybatisplus.annotation.TableName;
 
 /**
- * 配额规则（V5.0）.
- * <p>V5.1 预扣减模型：规则描述「谁（targetType+targetCode）+ 哪个模型（model）+ 哪种额度（limitType）+ 限额（limitValue）+ 周期（period）」，
- * check 按预估量预扣、report 回滚预扣后按真实值扣减。</p>
+ * 配额规则（V5.2 责任链拦截模型）.
+ * <p>规则描述「谁（targetType+targetCode）+ 哪个模型（model）+ 哪种额度（limitType）+ 限额（limitValue）+ 周期（period）」，
+ * 由责任链拦截器按周期检查余额（balance = limit - MySQL 聚合用量），预计算开关开启时 check 按预估量预扣、report 回滚后按真实值扣减余额。</p>
  * <p>配额状态：ENABLED / DISABLED。</p>
  */
 @TableName("tl_quota_rule")

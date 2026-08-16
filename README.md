@@ -34,14 +34,18 @@ POST /v1/embeddings         # 可选
 
 ### 2. 配额控制与事前拦截
 
-双拦截策略（配置项 `tokenlimit.quota-check-mode`），调用真实大模型 **之前** 拦截，避免产生额外费用：
+责任链拦截（配置项 `tokenlimit.quota-chain`，可裁剪/排序），调用真实大模型 **之前** 拦截，避免产生额外费用：
 
 ```text
-PREDUCT（默认，严格）：调用前按 jtokkit 预估量 Lua 原子预扣
-  剩余额度 = limit - used - pre；预扣后剩余 < 0 拦截
-  调用后回滚预扣，按厂商真实值扣减
-CHECK_ONLY（宽松）：调用前只读 Redis used，used >= limit 拦截
-  并发下最后一次请求可能同时放行（超卖）
+拦截链（任一拦截即拒绝）：
+  1. team-balance  团队余额拦截（TOTAL 周期长期规则）
+  2. user-balance  个人余额拦截（TOTAL 周期长期规则，并确定抵扣来源）
+  3. usage-period  周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE 规则，含"每次请求"限次）
+
+预计算开关（tokenlimit.quota-precompute-enabled，默认开启）：
+  开启：调用前真实余额 - 预估量原子预扣（>0 才放行），结束后回滚预扣、按厂商真实值扣减余额
+       并发下存在极小窗口超支 1 次调用（可接受）
+  关闭：仅判断余额不预扣，并发下最后几次请求可能同时放行（超卖）
 ```
 
 支持的多级配额对象、类型与周期：
@@ -167,11 +171,11 @@ Cursor / DeepSeek Harness / AI Client / 业务应用
 |   2. 校验 API Key 状态 / 过期时间                       |
 |   3. 校验 Team Model Policy（模型是否允许）              |
 |   4. jtokkit 预估 prompt_tokens                        |
-|   5. 配额检查（PREDUCT 预扣 / CHECK_ONLY 读 used）      |
+|   5. 配额检查（责任链：团队余额 → 个人余额 → 周期用量）      |
 |   6. 查找 Provider Credential                          |
 |   7. 转发请求到真实模型供应商（流式透传）                 |
 |   8. 采集真实 Usage → 写入 MySQL usage_log              |
-|   9. 更新 Redis used                                    |
+|   9. 更新 Redis 余额（balance 扣减 / pre 回滚）             |
 +-------------------+-------------------+
         │                           │
         ▼                           ▼
@@ -295,7 +299,7 @@ TokenLimitClient client = new TokenLimitClient(
                 .secret("sk_tl_xxxxxxxx...")    // secret，未配置则仅发送 Bearer <access_key>
                 .build());
 
-// 1. 调用大模型前：配额检查（默认 PREDUCT：jtokkit 预估 + 原子预扣；可切换 CHECK_ONLY 只读不预扣）
+// 1. 调用大模型前：配额检查（责任链拦截：团队余额 → 个人余额 → 周期用量；预计算开启时按 jtokkit 预估量原子预扣）
 CheckResult result = client.check("deepseek-chat", 1000); // model + estimatedTokens
 if (!result.isAllowed()) {
     throw new TokenLimitException(result.getReason());
@@ -441,14 +445,17 @@ tl_audit_log             审计日志（操作事件与拦截日志）
 配额模型（Redis 数据结构）：
 
 ```text
-tokenlimit:quota:used:team:{team_code}:{limit_type}:{period}:{timeKey}
-tokenlimit:quota:used:user:{user_code}:{limit_type}:{period}:{timeKey}
+tokenlimit:quota:balance:team:{team_code}:{limit_type}:{period}:{timeKey}
+tokenlimit:quota:balance:user:{user_code}:{limit_type}:{period}:{timeKey}
+tokenlimit:quota:pre:team:{team_code}:{limit_type}:{period}:{timeKey}
+tokenlimit:quota:pre:user:{user_code}:{limit_type}:{period}:{timeKey}
 ```
 
 ```text
 示例：
-tokenlimit:quota:used:team:team-rd:TOKEN:DAY:20260813
-tokenlimit:quota:used:user:zhangsan:TOKEN:DAY:20260813
+tokenlimit:quota:balance:team:team-rd:TOKEN:DAY:20260813
+tokenlimit:quota:pre:team:team-rd:TOKEN:DAY:20260813
+tokenlimit:quota:pre:user:zhangsan:TOKEN:WEEK:2026W33
 ```
 
 数据一致性：
@@ -470,7 +477,7 @@ Redis 数据丢失：从 MySQL 重新聚合恢复。
 ```text
 ✅ OpenAI Compatible Proxy（/v1/chat/completions、/v1/models）
 ✅ API Key 鉴权与生命周期管理
-✅ Team / User 配额控制（预扣减模型，事前拦截）
+✅ Team / User 配额控制（责任链拦截 + 预计算开关，事前拦截）
 ✅ Provider Credential 托管 + Team Model Policy
 ✅ jtokkit Token 预估与异常检测
 ✅ 用量统计、成本归属、审计日志
@@ -505,7 +512,7 @@ V2.0  供应商账单导入、账单对账、异常计费分析、企业 AI FinO
 
 - [x] 产品定位与核心概念设计（PRD V5.0）；
 - [x] Java Maven 多模块工程（Java 21 / Spring Boot 3 / MyBatis-Plus / Redis / jtokkit），`mvn compile` 通过；
-- [x] 预扣减配额模型（PREDUCT：check 按 jtokkit 预估量 Lua 原子预扣，report 回滚预扣 + 累加真实值；可切换 CHECK_ONLY 简单计数器，check/report 上下文通过 traceId 关联）；
+- [x] 责任链拦截配额模型（team-balance / user-balance / usage-period 可配置；预计算开关：check 按 jtokkit 预估量原子预扣，report 回滚预扣 + 按真实值扣减余额，check/report 上下文通过 traceId 关联）；
 - [x] OpenAI Compatible Proxy（`/v1/chat/completions` / `/v1/models` / `/v1/embeddings`，流式透传）：
   - API Key 鉴权（INVALID_API_KEY / API_KEY_DISABLED / API_KEY_EXPIRED）；
   - Team Model Policy 模型策略校验（MODEL_NOT_ALLOWED，`/v1/models` 按 Team 返回可用模型）；

@@ -2,46 +2,49 @@ package com.tokenlimit.server.service.redis;
 
 import com.tokenlimit.common.enums.Period;
 
+import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Redis Key 生成工具（V5.1）.
+ * Redis Key 生成工具（V5.2）.
  *
- * <p>Key 结构：{prefix}:quota:{used|pre}:{targetType}:{targetCode}:{limitType}:{period}:{timeKey}
- * <br>示例：tokenlimit:quota:used:team:team-rd:TOKEN:DAY:20260813
- * <br>V5.1 双 key：used 存已完成调用的真实用量（与 MySQL 聚合一致），
- * pre 存进行中请求的预扣总量（PREDUCT 模式）。
- * <br>timeKey 即周期时间片（DAY 为 yyyyMMdd，MONTH 为 yyyyMM，TOTAL 为 total）。</p>
+ * <p>Key 结构：{prefix}:quota:{balance|pre}:{targetType}:{targetCode}:{limitType}:{period}:{timeKey}
+ * <br>示例：tokenlimit:quota:balance:team:team-rd:TOKEN:DAY:20260813
+ * <br>V5.2 双 key：balance 存真实余额（limit - used，used 来自 MySQL 用量聚合，Redis 仅缓存），
+ * pre 存进行中请求的预扣总量（本次请求计算得出，原子 INCRBY/DECRBY）。
+ * <br>timeKey 即周期时间片（DAY 为 yyyyMMdd，WEEK 为 ISO 周 yyyy'W'ww，MONTH 为 yyyyMM，TOTAL 为 total）。</p>
  */
 public final class QuotaKeyUtils {
 
     private static final DateTimeFormatter MINUTE = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
     private static final DateTimeFormatter HOUR = DateTimeFormatter.ofPattern("yyyyMMddHH");
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final DateTimeFormatter WEEK = DateTimeFormatter.ofPattern("yyyy'W'ww");
     private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("yyyyMM");
 
     private QuotaKeyUtils() {
     }
 
     /**
-     * 生成配额使用量 Key（used：已完成调用的真实用量）.
+     * 生成配额余额 Key（balance：limit - used 的真实余额，used 来自 MySQL 用量聚合）.
      *
      * @param prefix     前缀
      * @param targetType 目标类型（team / user）
      * @param targetCode 目标编码（teamCode / userCode）
-     * @param limitType  额度类型（TOKEN / CALL）
+     * @param limitType  额度类型（TOKEN / COST / REQUEST_COUNT）
      * @param period     周期
      * @param now        当前时间
      * @return Redis Key
      */
-    public static String quotaKey(String prefix, String targetType, String targetCode,
-                                  String limitType, Period period, LocalDateTime now) {
-        return key(prefix, "used", targetType, targetCode, limitType, period, now);
+    public static String balanceKey(String prefix, String targetType, String targetCode,
+                                    String limitType, Period period, LocalDateTime now) {
+        return key(prefix, "balance", targetType, targetCode, limitType, period, now);
     }
 
     /**
-     * 生成配额预扣 Key（pre：进行中请求的预扣总量，PREDUCT 模式）.
+     * 生成配额预扣 Key（pre：进行中请求的预扣总量）.
      */
     public static String preQuotaKey(String prefix, String targetType, String targetCode,
                                      String limitType, Period period, LocalDateTime now) {
@@ -67,8 +70,24 @@ public final class QuotaKeyUtils {
             case MINUTE -> now.format(MINUTE);
             case HOUR -> now.format(HOUR);
             case DAY -> now.format(DAY);
+            case WEEK -> now.format(WEEK);
             case MONTH -> now.format(MONTH);
             case TOTAL -> "total";
+        };
+    }
+
+    /**
+     * 计算周期起点（用于 MySQL 用量聚合：统计该周期内的真实用量）.
+     * <p>WEEK 以周一 00:00 为起点（ISO 8601）。</p>
+     */
+    public static LocalDateTime periodStart(Period period, LocalDateTime now) {
+        return switch (period) {
+            case MINUTE -> now.withSecond(0).withNano(0);
+            case HOUR -> now.withMinute(0).withSecond(0).withNano(0);
+            case DAY -> now.toLocalDate().atStartOfDay();
+            case WEEK -> now.toLocalDate().with(DayOfWeek.MONDAY).atStartOfDay();
+            case MONTH -> now.toLocalDate().withDayOfMonth(1).atStartOfDay();
+            case TOTAL -> LocalDateTime.of(1970, 1, 1, 0, 0);
         };
     }
 
@@ -82,6 +101,11 @@ public final class QuotaKeyUtils {
             case DAY -> {
                 long elapsed = now.getHour() * 3600L + now.getMinute() * 60L + now.getSecond();
                 yield 86400L - elapsed;
+            }
+            case WEEK -> {
+                LocalDateTime nextMonday = now.toLocalDate()
+                        .with(DayOfWeek.MONDAY).plusWeeks(1).atStartOfDay();
+                yield Duration.between(now, nextMonday).getSeconds();
             }
             case MONTH -> {
                 long lastDay = now.toLocalDate().lengthOfMonth();

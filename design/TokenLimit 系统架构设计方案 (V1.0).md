@@ -63,7 +63,7 @@
 | **核心框架** | **Spring Boot 3.2.x+** | 开启 `spring.threads.virtual.enabled=true`。 |
 | **并发模型** | **虚拟线程 (Virtual Threads)** | 替代传统 Tomcat 线程池，轻松支撑万级并发流式请求。 |
 | **HTTP 转发** | **Java 21 HttpClient / Apache HttpClient 5** | **必须配置连接池**。推荐 Java 原生 HttpClient（默认复用，轻量）。 |
-| **实时配额** | **Redis 7.x** | 双 key：`used` 真实用量 + `pre` 预扣量（PREDUCT 模式），Lua 脚本原子预扣/结算。 |
+| **实时配额** | **Redis 7.x** | 双 key：`balance` 真实余额（来自 MySQL 聚合，原子扣减）+ `pre` 预扣量（原子 INCRBY/DECRBY），无需 Lua。 |
 | **持久化** | **MySQL 8.0** | 存储 `usage_log` 事实表、团队/用户/配额配置。 |
 | **预估引擎** | **jtokkit** | 统一 Token 预估基准，用于异常检测与中断兜底。 |
 | **前端框架** | **Vue 3 / React + Vite** | 现代单页应用（SPA），开发阶段独立运行。 |
@@ -107,10 +107,10 @@ tokenlimit/
 1. **接入与鉴权**：解析 `Authorization: Bearer <access_key>:<secret>`，获取 Team/User 信息。
 2. **策略校验**：检查 Team Model Policy，判断模型是否允许。
 3. **Token 预估**：使用 jtokkit 计算 `estimated_prompt_tokens`。
-4. **配额拦截**：按 `tokenlimit.quota-check-mode` 模式：PREDUCT 读 used+pre 并 Lua 原子预扣（剩余 < 0 拒绝）；CHECK_ONLY 只读 `used`，若超限直接返回 429。
+4. **配额拦截**：责任链（`team-balance` → `user-balance` → `usage-period`，可配置裁剪/排序）；预计算开关开启时按 jtokkit 预估量原子预扣（真实余额 - 预扣值 ≤ 0 拒绝并回滚预扣），关闭时只读余额，若超限直接返回 429。
 5. **路由与转发**：查找 Provider Credential，通过**连接池 HttpClient** 发起请求。
 6. **流式透传**：收到 SSE Chunk **立刻 Flush 给客户端**，同时累计已转发内容。
-7. **结算与持久化**：流结束/中断后，获取真实 Usage（或预估兜底），**先写 MySQL，再更新 Redis**（PREDUCT：回滚预扣 + 累加真实值）。
+7. **结算与持久化**：流结束/中断后，获取真实 Usage（或预估兜底），**先写 MySQL，再更新 Redis**（预计算开启：回滚预扣 + 按真实值扣减余额）。
 
 ### 4.1 API Key 凭证格式与鉴权流程
 
