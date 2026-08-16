@@ -47,14 +47,14 @@
             </el-table-column>
             <el-table-column label="状态" width="90">
               <template #default="{ row }">
-                <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ row.status === 'ACTIVE' ? '启用' : '停用' }}</el-tag>
+                <el-tag :type="row.status === 'ENABLED' ? 'success' : 'info'" size="small">{{ row.status === 'ENABLED' ? '启用' : '停用' }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openCredDialog(row)">编辑</el-button>
-                <el-button link :type="row.status === 'ACTIVE' ? 'warning' : 'success'" @click="toggleCred(row)">
-                  {{ row.status === 'ACTIVE' ? '停用' : '启用' }}
+                <el-button link :type="row.status === 'ENABLED' ? 'warning' : 'success'" @click="toggleCred(row)">
+                  {{ row.status === 'ENABLED' ? '停用' : '启用' }}
                 </el-button>
                 <el-button link type="danger" @click="deleteCred(row)">删除</el-button>
               </template>
@@ -183,7 +183,7 @@
           <el-input v-model="credForm.remark" type="textarea" :rows="2" />
         </el-form-item>
         <el-form-item label="状态">
-          <el-switch v-model="credForm.status" active-value="ACTIVE" inactive-value="INACTIVE" active-text="启用" inactive-text="停用" />
+          <el-switch v-model="credForm.status" active-value="ENABLED" inactive-value="DISABLED" active-text="启用" inactive-text="停用" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -272,7 +272,7 @@ const credForm = reactive<ProviderCredential & { apiKey?: string }>({
   apiBaseUrl: '',
   apiKey: '',
   model: '',
-  status: 'ACTIVE',
+  status: 'ENABLED',
   remark: ''
 })
 
@@ -306,7 +306,7 @@ function openCredDialog(row?: ProviderCredential) {
     apiBaseUrl: '',
     apiKey: '',
     model: '',
-    status: 'ACTIVE',
+    status: 'ENABLED',
     remark: ''
   })
   if (row) Object.assign(credForm, row, { apiKey: '' })
@@ -365,7 +365,7 @@ async function saveCred() {
 
 async function toggleCred(row: ProviderCredential) {
   await toggleProviderCredential(row.credentialCode!)
-  ElMessage.success(row.status === 'ACTIVE' ? '已停用' : '已启用')
+  ElMessage.success(row.status === 'ENABLED' ? '已停用' : '已启用')
   loadCreds()
 }
 

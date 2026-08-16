@@ -2,6 +2,9 @@ import { httpGet, type PageResult } from '@/utils/request'
 import type { UsageLog } from './usage'
 import type { ApiKey } from './apikey'
 
+// 当前登录用户视角的“我的”数据接口，归属于 ADMIN 控制台包（/api/v1/admin/*）；
+// overview/quota/transactions/bills 为 MyAdminController；usage/api-keys 复用现有管理接口（USER 角色自动过滤自己）
+
 /** 我的概览 */
 export interface MyOverview {
   teamCode?: string
@@ -56,11 +59,11 @@ export interface MyBill {
 }
 
 export function getMyOverview(): Promise<MyOverview> {
-  return httpGet<MyOverview>('/v1/my/overview')
+  return httpGet<MyOverview>('/v1/admin/my/overview')
 }
 
 export function getMyQuota(): Promise<MyQuotaItem[]> {
-  return httpGet<MyQuotaItem[]>('/v1/my/quota')
+  return httpGet<MyQuotaItem[]>('/v1/admin/my/quota')
 }
 
 export function listMyUsages(params?: {
@@ -69,23 +72,25 @@ export function listMyUsages(params?: {
   startTime?: string
   endTime?: string
 }): Promise<PageResult<UsageLog>> {
-  return httpGet<PageResult<UsageLog>>('/v1/my/usage', params)
+  // 复用管理端用量接口：USER 角色自动按当前 userCode 过滤（UsageAdminController）
+  return httpGet<PageResult<UsageLog>>('/v1/admin/usages', params)
 }
 
 export function listMyTransactions(params?: {
   page?: number
   size?: number
 }): Promise<PageResult<MyTransaction>> {
-  return httpGet<PageResult<MyTransaction>>('/v1/my/transactions', params)
+  return httpGet<PageResult<MyTransaction>>('/v1/admin/my/transactions', params)
 }
 
 export function listMyBills(): Promise<MyBill[]> {
-  return httpGet<MyBill[]>('/v1/my/bills')
+  return httpGet<MyBill[]>('/v1/admin/my/bills')
 }
 
 export function listMyApiKeys(params?: {
   page?: number
   size?: number
 }): Promise<PageResult<ApiKey>> {
-  return httpGet<PageResult<ApiKey>>('/v1/my/api-keys', params)
+  // 复用管理端 API Key 接口：USER 角色自动按当前 userCode 过滤（ApiKeyAdminController）
+  return httpGet<PageResult<ApiKey>>('/v1/admin/api-keys', params)
 }

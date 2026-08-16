@@ -30,7 +30,7 @@
         <el-table-column prop="description" label="描述" min-width="180" />
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">{{ row.status === 'ACTIVE' ? '启用' : '停用' }}</el-tag>
+            <el-tag :type="row.status === 'ENABLED' ? 'success' : 'info'">{{ row.status === 'ENABLED' ? '启用' : '停用' }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
@@ -70,7 +70,7 @@
           <el-input v-model="form.description" type="textarea" :rows="2" />
         </el-form-item>
         <el-form-item label="状态">
-          <el-switch v-model="form.status" active-value="ACTIVE" inactive-value="INACTIVE" active-text="启用" inactive-text="停用" />
+          <el-switch v-model="form.status" active-value="ENABLED" inactive-value="DISABLED" active-text="启用" inactive-text="停用" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -102,7 +102,7 @@ const form = reactive<Team>({
   teamName: '',
   teamType: 'TEAM',
   description: '',
-  status: 'ACTIVE'
+  status: 'ENABLED'
 })
 
 const rules: FormRules = {
@@ -132,7 +132,7 @@ async function loadList() {
 }
 
 function openDialog(row?: Team) {
-  Object.assign(form, { id: undefined, teamCode: '', teamName: '', teamType: 'TEAM', description: '', status: 'ACTIVE' })
+  Object.assign(form, { id: undefined, teamCode: '', teamName: '', teamType: 'TEAM', description: '', status: 'ENABLED' })
   if (row) Object.assign(form, row)
   dialogVisible.value = true
 }

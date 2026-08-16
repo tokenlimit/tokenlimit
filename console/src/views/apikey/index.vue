@@ -54,8 +54,8 @@
           <template #default="{ row }">
             <el-button link type="primary" @click="openDialog(row)">编辑</el-button>
             <el-button link type="warning" @click="handleResetSecret(row)">重置密钥</el-button>
-            <el-button link :type="row.status === 'ACTIVE' ? 'warning' : 'success'" @click="handleToggleStatus(row)">
-              {{ row.status === 'ACTIVE' ? '停用' : '启用' }}
+            <el-button link :type="row.status === 'ENABLED' ? 'warning' : 'success'" @click="handleToggleStatus(row)">
+              {{ row.status === 'ENABLED' ? '停用' : '启用' }}
             </el-button>
             <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
@@ -154,7 +154,7 @@ const list = ref<ApiKey[]>([])
 const total = ref(0)
 const teams = ref<Team[]>([])
 const users = ref<User[]>([])
-const apiKeyStatuses = ref<string[]>(['ACTIVE', 'INACTIVE', 'EXPIRED', 'REVOKED'])
+const apiKeyStatuses = ref<string[]>(['ENABLED', 'DISABLED', 'EXPIRED', 'REVOKED'])
 const dialogVisible = ref(false)
 const secretVisible = ref(false)
 const secretInfo = reactive({ accessKey: '', secret: '' })
@@ -168,7 +168,7 @@ const form = reactive<ApiKey>({
   userCode: '',
   keyName: '',
   expireAt: undefined,
-  status: 'ACTIVE'
+  status: 'ENABLED'
 })
 
 const formUsers = computed(() =>
@@ -182,11 +182,11 @@ const rules: FormRules = {
 }
 
 function statusText(status?: string) {
-  return { ACTIVE: '启用', INACTIVE: '停用', EXPIRED: '过期', REVOKED: '已吊销' }[status || ''] || status || '-'
+  return { ENABLED: '启用', DISABLED: '停用', EXPIRED: '过期', REVOKED: '已吊销' }[status || ''] || status || '-'
 }
 
 function statusTagType(status?: string) {
-  if (status === 'ACTIVE') return 'success'
+  if (status === 'ENABLED') return 'success'
   if (status === 'REVOKED' || status === 'EXPIRED') return 'danger'
   return 'info'
 }
@@ -230,7 +230,7 @@ function openDialog(row?: ApiKey) {
     userCode: '',
     keyName: '',
     expireAt: undefined,
-    status: 'ACTIVE'
+    status: 'ENABLED'
   })
   if (row) Object.assign(form, row)
   dialogVisible.value = true
@@ -262,9 +262,9 @@ async function handleResetSecret(row: ApiKey) {
 }
 
 async function handleToggleStatus(row: ApiKey) {
-  const target = row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
+  const target = row.status === 'ENABLED' ? 'DISABLED' : 'ENABLED'
   await changeApiKeyStatus(row.id!, target)
-  ElMessage.success(target === 'ACTIVE' ? '已启用' : '已停用')
+  ElMessage.success(target === 'ENABLED' ? '已启用' : '已停用')
   loadList()
 }
 

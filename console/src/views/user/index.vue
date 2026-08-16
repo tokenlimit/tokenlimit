@@ -25,8 +25,8 @@
           <el-option v-for="m in quotaModes" :key="m" :label="quotaModeText(m)" :value="m" />
         </el-select>
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 110px" @change="loadList">
-          <el-option label="启用" value="ACTIVE" />
-          <el-option label="停用" value="INACTIVE" />
+          <el-option label="启用" value="ENABLED" />
+          <el-option label="停用" value="DISABLED" />
         </el-select>
         <el-input v-model="query.keyword" placeholder="搜索编码/名称/登录账号" clearable style="width: 220px" @keyup.enter="loadList" @clear="loadList" />
         <el-button @click="loadList">查询</el-button>
@@ -61,7 +61,7 @@
         </el-table-column>
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">{{ row.status === 'ACTIVE' ? '启用' : '停用' }}</el-tag>
+            <el-tag :type="row.status === 'ENABLED' ? 'success' : 'info'">{{ row.status === 'ENABLED' ? '启用' : '停用' }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right">
@@ -69,8 +69,8 @@
             <el-button link type="primary" @click="openDetail(row)">API Key</el-button>
             <el-button link type="primary" @click="openDialog(row)">编辑</el-button>
             <el-button link type="warning" @click="handleResetPassword(row)">重置密码</el-button>
-            <el-button link :type="row.status === 'ACTIVE' ? 'warning' : 'success'" @click="handleToggleStatus(row)">
-              {{ row.status === 'ACTIVE' ? '停用' : '启用' }}
+            <el-button link :type="row.status === 'ENABLED' ? 'warning' : 'success'" @click="handleToggleStatus(row)">
+              {{ row.status === 'ENABLED' ? '停用' : '启用' }}
             </el-button>
             <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
@@ -142,7 +142,7 @@
           </el-col>
         </el-row>
         <el-form-item label="状态">
-          <el-switch v-model="form.status" active-value="ACTIVE" inactive-value="INACTIVE" active-text="启用" inactive-text="停用" />
+          <el-switch v-model="form.status" active-value="ENABLED" inactive-value="DISABLED" active-text="启用" inactive-text="停用" />
           <span class="login-switch">
             <el-switch v-model="form.loginEnabled" active-value="1" inactive-value="0" active-text="允许登录" inactive-text="禁止登录" />
           </span>
@@ -169,7 +169,7 @@
           </el-table-column>
           <el-table-column label="状态" width="90">
             <template #default="{ row }">
-              <el-tag size="small" :type="row.status === 'ACTIVE' ? 'success' : 'info'">{{ row.status }}</el-tag>
+              <el-tag size="small" :type="row.status === 'ENABLED' ? 'success' : 'info'">{{ row.status }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="expireAt" label="过期" width="160">
@@ -276,7 +276,7 @@ const form = reactive<User & { password?: string }>({
   username: '',
   password: '',
   loginEnabled: true,
-  status: 'ACTIVE'
+  status: 'ENABLED'
 })
 
 const rules: FormRules = {
@@ -340,7 +340,7 @@ function openDialog(row?: User) {
     username: '',
     password: '',
     loginEnabled: true,
-    status: 'ACTIVE'
+    status: 'ENABLED'
   })
   if (row) {
     Object.assign(form, row, { password: undefined, loginEnabled: row.loginEnabled === undefined ? true : row.loginEnabled })
@@ -369,9 +369,9 @@ async function handleSave() {
 }
 
 async function handleToggleStatus(row: User) {
-  const target = row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
+  const target = row.status === 'ENABLED' ? 'DISABLED' : 'ENABLED'
   await changeUserStatus(row.id!, target)
-  ElMessage.success(target === 'ACTIVE' ? '已启用' : '已停用')
+  ElMessage.success(target === 'ENABLED' ? '已启用' : '已停用')
   loadList()
 }
 

@@ -21,7 +21,7 @@ export interface ProviderCredential {
   apiKeyEnc?: string
   /** 默认模型 */
   model?: string
-  /** ACTIVE / INACTIVE */
+  /** ENABLED / DISABLED */
   status?: string
   remark?: string
   createdAt?: string

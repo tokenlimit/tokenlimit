@@ -56,10 +56,10 @@ const total = ref(0)
 const query = reactive({ page: 1, size: 10 })
 
 function statusText(s?: string) {
-  return { ACTIVE: '启用', INACTIVE: '停用', EXPIRED: '过期', REVOKED: '已吊销' }[s || ''] || s || '-'
+  return { ENABLED: '启用', DISABLED: '停用', EXPIRED: '过期', REVOKED: '已吊销' }[s || ''] || s || '-'
 }
 function statusTag(s?: string) {
-  return { ACTIVE: 'success', INACTIVE: 'info', EXPIRED: 'warning', REVOKED: 'danger' }[s || ''] || 'info'
+  return { ENABLED: 'success', DISABLED: 'info', EXPIRED: 'warning', REVOKED: 'danger' }[s || ''] || 'info'
 }
 
 async function loadList() {
