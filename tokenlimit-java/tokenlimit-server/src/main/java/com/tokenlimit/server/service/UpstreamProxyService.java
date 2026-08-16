@@ -3,10 +3,14 @@ package com.tokenlimit.server.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.tokenlimit.server.config.TokenLimitProperties;
 import com.tokenlimit.server.enums.LlmProvider;
-import com.tokenlimit.server.service.redis.RateLimiterService;
 import jakarta.servlet.http.HttpServletResponse;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.HttpEntity;
+import org.apache.hc.core5.http.io.entity.StringEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -16,18 +20,14 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 上游代理服务：处理 HTTP 转发、流式/非流式响应、token 估算与结算.
- * <p>从 ProxyGatewayController 提取，降低 Controller 职责。</p>
+ * <p>使用 Apache HttpClient 5 连接池化客户端（见 {@code HttpClientConfig}），
+ * 连接复用 + 空闲回收，满足设计文档 §5.1 要求。</p>
  * <p>流式响应采用分块 token 估算，避免 completion 全文驻留内存导致 OOM。</p>
  */
 @Service
@@ -36,19 +36,16 @@ public class UpstreamProxyService {
     private static final Logger log = LoggerFactory.getLogger(UpstreamProxyService.class);
     private static final int TOKEN_ESTIMATE_CHUNK_SIZE = 4000;
 
-    private final HttpClient httpClient;
+    private final CloseableHttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final TokenEstimationService tokenEstimationService;
-    private final TokenLimitProperties properties;
 
-    public UpstreamProxyService(HttpClient upstreamHttpClient,
+    public UpstreamProxyService(CloseableHttpClient upstreamHttpClient,
                                 ObjectMapper objectMapper,
-                                TokenEstimationService tokenEstimationService,
-                                TokenLimitProperties properties) {
+                                TokenEstimationService tokenEstimationService) {
         this.httpClient = upstreamHttpClient;
         this.objectMapper = objectMapper;
         this.tokenEstimationService = tokenEstimationService;
-        this.properties = properties;
     }
 
     /**
@@ -67,23 +64,14 @@ public class UpstreamProxyService {
     }
 
     /**
-     * 构建 HTTP 请求.
+     * 发送请求到上游（连接池复用，返回响应；调用方负责关闭响应释放连接）.
      */
-    public HttpRequest buildRequest(String url, String body, String apiKey) {
-        return HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(properties.getHttp().getRequestTimeoutSeconds()))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build();
-    }
-
-    /**
-     * 发送请求到上游.
-     */
-    public HttpResponse<InputStream> send(HttpRequest request) throws IOException, InterruptedException {
-        return httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+    public CloseableHttpResponse send(String url, String body, String apiKey) throws IOException {
+        HttpPost post = new HttpPost(url);
+        post.setHeader("Content-Type", "application/json");
+        post.setHeader("Authorization", "Bearer " + apiKey);
+        post.setEntity(new StringEntity(body, ContentType.APPLICATION_JSON));
+        return httpClient.execute(post);
     }
 
     /**
@@ -101,7 +89,7 @@ public class UpstreamProxyService {
      *
      * @return 结算结果（usage 信息）
      */
-    public StreamResult handleStreaming(HttpServletResponse response, HttpResponse<InputStream> upstream,
+    public StreamResult handleStreaming(HttpServletResponse response, CloseableHttpResponse upstream,
                                         String model) throws IOException {
         response.setStatus(HttpServletResponse.SC_OK);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
@@ -118,8 +106,8 @@ public class UpstreamProxyService {
         StringBuilder chunkBuffer = new StringBuilder();
         AtomicLong estimatedCompletionTokens = new AtomicLong(0);
 
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(upstream.body(), StandardCharsets.UTF_8))) {
+        InputStream content = readEntity(upstream.getEntity());
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(content, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.startsWith("data:")) {
@@ -154,7 +142,7 @@ public class UpstreamProxyService {
             response.flushBuffer();
 
             // 处理剩余 buffer
-            if (chunkBuffer.length() > 0) {
+            if (!chunkBuffer.isEmpty()) {
                 estimatedCompletionTokens.addAndGet(
                         tokenEstimationService.estimateTokens(model, chunkBuffer.toString()));
             }
@@ -186,14 +174,12 @@ public class UpstreamProxyService {
     /**
      * 处理非流式响应：完整读取并提取 usage.
      */
-    public NonStreamResult handleNonStreaming(HttpServletResponse response, HttpResponse<InputStream> upstream)
-            throws IOException {
-        String respBody = readFully(upstream.body());
+    public NonStreamResult handleNonStreaming(CloseableHttpResponse upstream) throws IOException {
+        String respBody = readEntityToString(upstream.getEntity());
 
         NonStreamResult result = new NonStreamResult();
         result.setResponseBody(respBody);
-        result.setContentType(upstream.headers().firstValue("Content-Type").orElse("application/json"));
-        result.setStatusCode(upstream.statusCode());
+        result.setStatusCode(upstream.getCode());
 
         try {
             JsonNode node = objectMapper.readTree(respBody);
@@ -214,8 +200,8 @@ public class UpstreamProxyService {
     /**
      * 读取上游错误响应体.
      */
-    public String readErrorResponse(HttpResponse<InputStream> upstream) throws IOException {
-        return readFully(upstream.body());
+    public String readErrorResponse(CloseableHttpResponse upstream) throws IOException {
+        return readEntityToString(upstream.getEntity());
     }
 
     /**
@@ -229,6 +215,14 @@ public class UpstreamProxyService {
             sb.append(new String(buf, 0, n, StandardCharsets.UTF_8));
         }
         return sb.toString();
+    }
+
+    private InputStream readEntity(HttpEntity entity) throws IOException {
+        return entity == null ? InputStream.nullInputStream() : entity.getContent();
+    }
+
+    private String readEntityToString(HttpEntity entity) throws IOException {
+        return readFully(readEntity(entity));
     }
 
     private void captureUsage(JsonNode usage, AtomicLong prompt, AtomicLong completion, AtomicLong total) {
@@ -295,7 +289,6 @@ public class UpstreamProxyService {
      */
     public static class NonStreamResult {
         private String responseBody;
-        private String contentType;
         private int statusCode;
         private boolean hasUsage;
         private long promptTokens;
@@ -304,8 +297,6 @@ public class UpstreamProxyService {
 
         public String getResponseBody() { return responseBody; }
         public void setResponseBody(String responseBody) { this.responseBody = responseBody; }
-        public String getContentType() { return contentType; }
-        public void setContentType(String contentType) { this.contentType = contentType; }
         public int getStatusCode() { return statusCode; }
         public void setStatusCode(int statusCode) { this.statusCode = statusCode; }
         public boolean isHasUsage() { return hasUsage; }

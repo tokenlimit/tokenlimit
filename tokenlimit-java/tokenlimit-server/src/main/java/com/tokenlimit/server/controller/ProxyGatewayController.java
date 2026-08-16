@@ -6,18 +6,15 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tokenlimit.common.api.BusinessException;
 import com.tokenlimit.common.api.ErrorCode;
 import com.tokenlimit.common.dto.CheckResult;
+import com.tokenlimit.server.config.TokenLimitProperties;
 import com.tokenlimit.server.entity.ApiKey;
 import com.tokenlimit.server.security.OpenAiResponseWriter;
 import com.tokenlimit.server.security.SecurityUtils;
-import com.tokenlimit.server.service.ModelPolicyService;
-import com.tokenlimit.server.service.ProviderResolverService;
-import com.tokenlimit.server.service.QuotaService;
-import com.tokenlimit.server.service.TokenEstimationService;
-import com.tokenlimit.server.service.UpstreamProxyService;
+import com.tokenlimit.server.service.*;
 import com.tokenlimit.server.service.redis.RateLimiterService;
-import com.tokenlimit.server.config.TokenLimitProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -28,9 +25,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -212,25 +206,24 @@ public class ProxyGatewayController {
         }
         String upstreamUrl = upstreamProxyService.buildUpstreamUrl(
                 resolved.getApiBaseUrl(), resolved.getProvider(), upstreamPath);
-        HttpRequest upstreamRequest = upstreamProxyService.buildRequest(upstreamUrl, upstreamBody, resolved.getApiKey());
 
-        // 10. 转发并处理响应
-        try {
-            HttpResponse<InputStream> upstreamResponse = upstreamProxyService.send(upstreamRequest);
-            
-            if (upstreamResponse.statusCode() >= 400) {
+        // 10. 转发并处理响应（连接池复用，try-with-resources 关闭响应释放连接）
+        try (CloseableHttpResponse upstreamResponse =
+                     upstreamProxyService.send(upstreamUrl, upstreamBody, resolved.getApiKey())) {
+
+            if (upstreamResponse.getCode() >= 400) {
                 // 上游错误
                 String err = upstreamProxyService.readErrorResponse(upstreamResponse);
                 settle(credential, traceId, model, resolved.getProvider(), 0, 0, 0,
                         "ERROR", estPrompt, 0, estPrompt);
-                writeRaw(response, upstreamResponse.statusCode(),
-                        upstreamResponse.headers().firstValue("Content-Type").orElse(MediaType.APPLICATION_JSON_VALUE),
+                writeRaw(response, upstreamResponse.getCode(),
+                        contentTypeOf(upstreamResponse),
                         err.isEmpty() ? "{\"error\":\"upstream error\"}" : err);
                 return;
             }
 
             if (stream) {
-                handleStreamResponse(response, upstreamResponse, credential, traceId, model, 
+                handleStreamResponse(response, upstreamResponse, credential, traceId, model,
                         resolved.getProvider(), estPrompt, startTime);
             } else {
                 handleNonStreamResponse(response, upstreamResponse, credential, traceId, model,
@@ -249,7 +242,8 @@ public class ProxyGatewayController {
     /**
      * 处理流式响应.
      */
-    private void handleStreamResponse(HttpServletResponse response, HttpResponse<InputStream> upstream,
+    private void handleStreamResponse(HttpServletResponse response,
+                                      CloseableHttpResponse upstream,
                                       String[] credential, String traceId, String model, String provider,
                                       long estPrompt, long startTime) throws IOException {
         UpstreamProxyService.StreamResult result = upstreamProxyService.handleStreaming(response, upstream, model);
@@ -283,10 +277,11 @@ public class ProxyGatewayController {
     /**
      * 处理非流式响应.
      */
-    private void handleNonStreamResponse(HttpServletResponse response, HttpResponse<InputStream> upstream,
+    private void handleNonStreamResponse(HttpServletResponse response,
+                                         CloseableHttpResponse upstream,
                                          String[] credential, String traceId, String model, String provider,
                                          long estPrompt, long startTime) throws IOException {
-        UpstreamProxyService.NonStreamResult result = upstreamProxyService.handleNonStreaming(response, upstream);
+        UpstreamProxyService.NonStreamResult result = upstreamProxyService.handleNonStreaming(upstream);
         
         long latencyMs = System.currentTimeMillis() - startTime;
         
@@ -302,7 +297,15 @@ public class ProxyGatewayController {
             log.debug("[{}] 非流式完成(无usage), latency={}ms", traceId, latencyMs);
         }
         
-        writeRaw(response, result.getStatusCode(), result.getContentType(), result.getResponseBody());
+        writeRaw(response, result.getStatusCode(), contentTypeOf(upstream), result.getResponseBody());
+    }
+
+    /**
+     * 提取上游响应 Content-Type，默认 application/json.
+     */
+    private String contentTypeOf(org.apache.hc.core5.http.HttpResponse upstream) {
+        org.apache.hc.core5.http.Header header = upstream.getFirstHeader("Content-Type");
+        return header != null && header.getValue() != null ? header.getValue() : MediaType.APPLICATION_JSON_VALUE;
     }
 
     /**

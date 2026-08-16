@@ -33,7 +33,7 @@ public class TokenLimitProperties {
     /** OpenAI Compatible 网关接口级限流 */
     private RateLimit rateLimit = new RateLimit();
     /** 上游 HTTP 客户端（连接池由 JVM 统一管理，配置化超时） */
-    private Http http = new Http();
+    private UpstreamHttp upstreamHttp = new UpstreamHttp();
 
     public Admin getAdmin() {
         return admin;
@@ -132,12 +132,12 @@ public class TokenLimitProperties {
         this.rateLimit = rateLimit;
     }
 
-    public Http getHttp() {
-        return http;
+    public UpstreamHttp getUpstreamHttp() {
+        return upstreamHttp;
     }
 
-    public void setHttp(Http http) {
-        this.http = http;
+    public void setUpstreamHttp(UpstreamHttp upstreamHttp) {
+        this.upstreamHttp = upstreamHttp;
     }
 
     /**
@@ -177,13 +177,19 @@ public class TokenLimitProperties {
     }
 
     /**
-     * 上游 HTTP 客户端配置.
+     * 上游 HTTP 客户端配置（Apache HttpClient 5 连接池，见设计文档 §5.1）.
      */
-    public static class Http {
+    public static class UpstreamHttp {
         /** 连接超时（秒） */
         private long connectTimeoutSeconds = 15;
         /** 上游请求超时（秒），流式接口同样适用（超时后中断并结算） */
         private long requestTimeoutSeconds = 300;
+        /** 连接池最大总连接数（设计文档建议 2000+，流式为长连接） */
+        private int maxConnections = 2000;
+        /** 单路由（单个上游域名）最大连接数 */
+        private int maxConnectionsPerRoute = 500;
+        /** 空闲连接回收时间（秒），防止复用到死连接 */
+        private long idleEvictSeconds = 30;
 
         public long getConnectTimeoutSeconds() {
             return connectTimeoutSeconds;
@@ -199,6 +205,30 @@ public class TokenLimitProperties {
 
         public void setRequestTimeoutSeconds(long requestTimeoutSeconds) {
             this.requestTimeoutSeconds = requestTimeoutSeconds;
+        }
+
+        public int getMaxConnections() {
+            return maxConnections;
+        }
+
+        public void setMaxConnections(int maxConnections) {
+            this.maxConnections = maxConnections;
+        }
+
+        public int getMaxConnectionsPerRoute() {
+            return maxConnectionsPerRoute;
+        }
+
+        public void setMaxConnectionsPerRoute(int maxConnectionsPerRoute) {
+            this.maxConnectionsPerRoute = maxConnectionsPerRoute;
+        }
+
+        public long getIdleEvictSeconds() {
+            return idleEvictSeconds;
+        }
+
+        public void setIdleEvictSeconds(long idleEvictSeconds) {
+            this.idleEvictSeconds = idleEvictSeconds;
         }
     }
 
