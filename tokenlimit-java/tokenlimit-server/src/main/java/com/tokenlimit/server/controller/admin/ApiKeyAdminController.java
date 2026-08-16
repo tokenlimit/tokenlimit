@@ -6,6 +6,7 @@ import com.tokenlimit.common.api.BusinessException;
 import com.tokenlimit.common.api.ErrorCode;
 import com.tokenlimit.common.api.Result;
 import com.tokenlimit.common.dto.PageResult;
+import com.tokenlimit.server.config.TokenLimitProperties;
 import com.tokenlimit.server.entity.ApiKey;
 import com.tokenlimit.server.entity.User;
 import com.tokenlimit.server.repository.mapper.ApiKeyMapper;
@@ -44,10 +45,13 @@ public class ApiKeyAdminController {
 
     private final ApiKeyMapper apiKeyMapper;
     private final UserMapper userMapper;
+    private final TokenLimitProperties properties;
 
-    public ApiKeyAdminController(ApiKeyMapper apiKeyMapper, UserMapper userMapper) {
+    public ApiKeyAdminController(ApiKeyMapper apiKeyMapper, UserMapper userMapper,
+                                 TokenLimitProperties properties) {
         this.apiKeyMapper = apiKeyMapper;
         this.userMapper = userMapper;
+        this.properties = properties;
     }
 
     @GetMapping
@@ -211,9 +215,9 @@ public class ApiKeyAdminController {
     }
 
     /**
-     * MVP 阶段使用简单 SHA-256 哈希；生产可替换为 bcrypt.
+     * secret 哈希：HMAC-SHA256 + 服务端 pepper（见 SecretUtils）.
      */
-    public static String hashSecret(String secret) {
-        return SecretUtils.hashSecret(secret);
+    private String hashSecret(String secret) {
+        return SecretUtils.hashSecret(secret, properties.getHashPepper());
     }
 }

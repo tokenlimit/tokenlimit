@@ -292,8 +292,8 @@ public class QuotaService {
         if (!"ENABLED".equals(apiKey.getStatus())) {
             throw new BusinessException(ErrorCode.API_KEY_DISABLED);
         }
-        // secret 双向校验
-        if (!SecretUtils.verifySecret(secret, apiKey.getSecretHash())) {
+        // secret 双向校验（HMAC-SHA256 + 服务端 pepper）
+        if (!SecretUtils.verifySecret(secret, apiKey.getSecretHash(), properties.getHashPepper())) {
             throw new BusinessException(ErrorCode.INVALID_API_KEY);
         }
         if (!StringUtils.hasText(apiKey.getUserCode())) {

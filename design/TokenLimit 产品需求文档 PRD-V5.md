@@ -123,7 +123,7 @@ API Key 由 **accessKey + secret** 两段组成：
 | 字段 | 格式 | 说明 |
 |---|---|---|
 | accessKey | `tl_ak_xxxxxxxx` | 公开标识，全局唯一，用于定位 Key（控制台列表可见） |
-| secret | `sk_tl_xxxxxxxx...`（48 位随机串） | 机密部分，明文仅创建 / 重置时返回一次，库中只存 SHA-256 哈希 |
+| secret | `sk_tl_xxxxxxxx...`（48 位随机串） | 机密部分，明文仅创建 / 重置时返回一次，库中只存 HMAC-SHA256 哈希（服务端 pepper 参与，防离线碰撞） |
 
 客户端调用 TokenLimit Proxy 时，将两段用冒号拼接为**单个字符串**填入（兼容 Cursor 等只支持单个 API Key 的客户端）：
 

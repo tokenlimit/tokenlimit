@@ -50,6 +50,8 @@ tokenlimit:
   login-max-fails: 5
   # 登录锁定时间（秒）
   login-lock-seconds: 1800
+  # API Key secret 哈希服务端密钥（pepper），生产环境务必替换默认值
+  hash-pepper: tokenlimit-dev-only-hash-pepper-change-me-in-production
   # Admin 端 JWT 配置（无状态会话）
   jwt:
     # HS256 签名密钥（≥32 字节；支持 Base64 或纯文本），生产环境务必替换

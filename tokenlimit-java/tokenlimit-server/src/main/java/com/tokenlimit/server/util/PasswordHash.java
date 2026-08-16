@@ -2,6 +2,9 @@ package com.tokenlimit.server.util;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+
 /**
  * 用户密码哈希工具（BCrypt）.
  * <p>存储格式：{@code {bcrypt}$2a$10$...}。
@@ -38,11 +41,30 @@ public final class PasswordHash {
         if (storedHash.startsWith(BCRYPT_PREFIX)) {
             return ENCODER.matches(rawPassword, storedHash.substring(BCRYPT_PREFIX.length()));
         }
-        // 旧版裸 SHA-256，兼容校验（仅用于迁移期）
+        // 旧版裸 SHA-256，兼容校验（仅用于迁移期；注意：API Key 哈希已改为 HMAC-SHA256 + pepper）
         if (storedHash.matches(LEGACY_HEX_PATTERN)) {
-            return SecretUtils.verifySecret(rawPassword, storedHash);
+            return verifyLegacySha256(rawPassword, storedHash);
         }
         return false;
+    }
+
+    /**
+     * 旧版裸 SHA-256 校验（用户密码迁移期兼容，无盐、不参与 pepper）.
+     */
+    private static boolean verifyLegacySha256(String rawPassword, String storedHash) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(rawPassword.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return MessageDigest.isEqual(
+                    sb.toString().getBytes(StandardCharsets.UTF_8),
+                    storedHash.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            throw new IllegalStateException("密码哈希校验失败", e);
+        }
     }
 
     /**

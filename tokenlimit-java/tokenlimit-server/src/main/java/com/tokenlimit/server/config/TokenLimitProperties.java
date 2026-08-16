@@ -28,6 +28,8 @@ public class TokenLimitProperties {
     private int loginMaxFails = 5;
     /** 登录失败锁定时间（秒），默认 30 分钟 */
     private long loginLockSeconds = 1800;
+    /** API Key secret 哈希服务端密钥（pepper）：HMAC-SHA256 防离线碰撞，生产环境务必覆盖默认值 */
+    private String hashPepper = "tokenlimit-dev-only-hash-pepper-change-me-in-production";
     /** Redis 故障降级（可用性优先）：true 时 Redis 异常按默认值放行，false 时抛出 */
     private boolean redisFallbackEnabled = true;
     /** OpenAI Compatible 网关接口级限流 */
@@ -114,6 +116,14 @@ public class TokenLimitProperties {
 
     public void setLoginLockSeconds(long loginLockSeconds) {
         this.loginLockSeconds = loginLockSeconds;
+    }
+
+    public String getHashPepper() {
+        return hashPepper;
+    }
+
+    public void setHashPepper(String hashPepper) {
+        this.hashPepper = hashPepper;
     }
 
     public boolean isRedisFallbackEnabled() {

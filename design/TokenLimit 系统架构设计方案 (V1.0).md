@@ -114,7 +114,7 @@ tokenlimit/
 
 ### 4.1 API Key 凭证格式与鉴权流程
 
-API Key 为**两段式凭证**：`accessKey`（格式 `tl_ak_xxxxxxxx`，公开标识，全局唯一）+ `secret`（格式 `sk_tl_xxxxxxxx...`，机密，明文仅创建/重置时返回一次，库中仅存 SHA-256 哈希）。
+API Key 为**两段式凭证**：`accessKey`（格式 `tl_ak_xxxxxxxx`，公开标识，全局唯一）+ `secret`（格式 `sk_tl_xxxxxxxx...`，机密，明文仅创建/重置时返回一次，库中仅存 HMAC-SHA256 哈希，服务端 pepper 密钥参与防离线碰撞）。
 
 为兼容 Cursor 等只支持单个 API Key 的客户端，客户端将两段用冒号拼接为单个字符串，网关按第一个冒号拆分后双向校验：
 

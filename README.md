@@ -93,7 +93,7 @@ PERSONAL_FIRST_THEN_TEAM   个人优先，不足时团队兜底
 创建 → 启用 → 禁用 / 过期 / 删除
 ```
 
-- API Key 创建时自动生成 access_key 与 secret，**secret 仅创建时显示一次**，库中只存 SHA-256 哈希；
+- API Key 创建时自动生成 access_key 与 secret，**secret 仅创建时显示一次**，库中只存 HMAC-SHA256 哈希（服务端 pepper 密钥参与，防离线碰撞）；
 - 可配置允许模型与过期时间；禁用后实时失效；
 - User / Team 被禁用时，其下所有 API Key 自动失效。
 
