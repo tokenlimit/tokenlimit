@@ -12,8 +12,12 @@ import java.time.LocalDateTime;
 /**
  * 余额拦截抽象基类：单条规则的余额检查（含 MySQL 聚合惰性初始化）.
  *
- * <p>检查公式（预计算开关开启时）：{@code balance - pre - est > 0} 放行；关闭时仅 {@code balance - est > 0}。
- * balance 为真实余额（limit - MySQL 聚合用量），pre 为进行中请求的预扣总量。
+ * <p>每个规则均按预计算开关判定（预计算开关让每个拦截规则更精准前置 / 或后置容忍）：</p>
+ * <ul>
+ *   <li><b>开启（精准前置）</b>：{@code balance - pre - est >= 0} 放行（==0 也放行，调用尚未发生，真实消耗以调用后 report 为准）；</li>
+ *   <li><b>关闭（后置容忍）</b>：仅 {@code balance > 0} 放行（余额变化在调用结束后才发生，==0 即无额度），允许本次超额完成，超支部分下次拦截。</li>
+ * </ul>
+ * <p>balance 为真实余额（limit - MySQL 聚合用量），pre 为进行中请求的预扣总量。
  * Redis 故障时按 {@code tokenlimit.redis-fallback-enabled} 降级：启用放行（可用性优先），禁用抛出（一致性优先）。</p>
  */
 public abstract class AbstractBalanceInterceptor implements QuotaInterceptor {
@@ -44,7 +48,6 @@ public abstract class AbstractBalanceInterceptor implements QuotaInterceptor {
     protected QuotaDenied checkRule(QuotaRule rule, long estTotal, boolean precompute, LocalDateTime now) {
         Period period = Period.valueOf(rule.getPeriod());
         long limit = rule.getLimitValue().longValue();
-        long amount = amountFor(rule, estTotal);
 
         try {
             // 真实余额：优先读 Redis 缓存；key 缺失/负值（首次访问/周期滚动/并发超支残留）时从 MySQL 聚合重建
@@ -57,14 +60,24 @@ public abstract class AbstractBalanceInterceptor implements QuotaInterceptor {
                         rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now, balance);
             }
 
-            long pre = precompute ? quotaRedisService.readPre(
-                    rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now) : 0;
-
-            if (balance - pre - amount <= 0) {
+            if (precompute) {
+                // 精准前置：余额 - 预扣 - 预估 >= 0 放行（==0 也放行，调用尚未发生；<0 拦截）
+                long amount = amountFor(rule, estTotal);
+                long pre = quotaRedisService.readPre(
+                        rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now);
+                if (balance - pre - amount < 0) {
+                    return new QuotaDenied(errorCodeFor(rule),
+                            "配额超限: " + rule.getTargetType() + "/" + rule.getTargetCode()
+                                    + " " + period + " 余额 " + balance
+                                    + " 预扣 " + pre + " 预估 " + amount + " 上限 " + limit);
+                }
+                return null;
+            }
+            // 后置容忍：仅判断真实余额 > 0，不预扣、不减预估，允许本次超额完成（超支部分下次拦截）
+            if (balance <= 0) {
                 return new QuotaDenied(errorCodeFor(rule),
                         "配额超限: " + rule.getTargetType() + "/" + rule.getTargetCode()
-                                + " " + period + " 余额 " + balance
-                                + " 预扣 " + pre + " 预估 " + amount + " 上限 " + limit);
+                                + " " + period + " 余额 " + balance + " 上限 " + limit);
             }
             return null;
         } catch (Exception e) {

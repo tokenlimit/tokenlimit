@@ -107,7 +107,7 @@ tokenlimit/
 1. **接入与鉴权**：解析 `Authorization: Bearer <access_key>:<secret>`，获取 Team/User 信息。
 2. **策略校验**：检查 Team Model Policy，判断模型是否允许。
 3. **Token 预估**：使用 jtokkit 计算 `estimated_prompt_tokens`。
-4. **配额拦截**：责任链（`team-balance` → `user-balance` → `usage-period`，可配置裁剪/排序）；预计算开关开启时按 jtokkit 预估量原子预扣（真实余额 - 预扣值 ≤ 0 拒绝并回滚预扣），关闭时只读余额，若超限直接返回 429。
+4. **配额拦截**：责任链（`team-balance` → `user-balance` → `usage-period`，可配置裁剪/排序）；预计算开关开启时按 jtokkit 预估量原子预扣（真实余额 - 预扣值 < 0 拒绝，==0 放行），关闭时只读余额（==0 拒绝），若超限直接返回 429。
 5. **路由与转发**：查找 Provider Credential，通过**连接池 HttpClient** 发起请求。
 6. **流式透传**：收到 SSE Chunk **立刻 Flush 给客户端**，同时累计已转发内容。
 7. **结算与持久化**：流结束/中断后，获取真实 Usage（或预估兜底），**先写 MySQL，再更新 Redis**（预计算开启：回滚预扣 + 按真实值扣减余额）。

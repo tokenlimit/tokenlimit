@@ -46,16 +46,21 @@ tokenlimit:quota:pre:team:team-rd:REQUEST_COUNT:HOUR:2026081614
 
 ## 3. 拦截判定（责任链拦截器）
 
-检查公式（预计算开关开启时）：
+每个规则均按预计算开关判定（预计算开关让每个拦截规则更精准前置 / 或后置容忍）：
 
 ```text
-balance - pre - est_tokens > 0   → 放行
-balance - pre - est_tokens <= 0  → 拦截（余额不足）
+预计算开启（精准前置）：
+  balance - pre - est_tokens >= 0  → 放行（==0 也放行，调用尚未发生，真实消耗以调用后 report 为准）
+  balance - pre - est_tokens < 0   → 拦截（余额不足）
+
+预计算关闭（后置容忍）：
+  balance > 0   → 放行（不预扣、不减预估，余额变化在调用结束后才发生，==0 即无额度）
+  balance <= 0  → 拦截
 ```
 
 - `balance` 为真实余额：优先读 Redis 缓存；key 缺失/负值（首次访问、周期滚动、并发超支残留）时从 MySQL 聚合重建（`limit - 聚合用量`）。
-- `pre` 为进行中请求的预扣总量（预计算关闭时视为 0）。
-- `est_tokens` 为本次预估量：TOKEN/COST 规则用 jtokkit 预估总 token，REQUEST_COUNT 规则为 1。
+- `pre` 为进行中请求的预扣总量（仅预计算开启时读取）。
+- `est_tokens` 为本次预估量：TOKEN/COST 规则用 jtokkit 预估总 token，REQUEST_COUNT 规则为 1（仅预计算开启时参与判定）。
 
 余额不足时返回拒绝（错误码 + 超限详情），责任链后续环节不再执行。
 
