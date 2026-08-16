@@ -88,7 +88,7 @@ PERSONAL_FIRST_THEN_TEAM   个人优先，不足时团队兜底
 预估值与厂商真实值偏差超过阈值（默认 50%）时，标记 `anomaly_detected = 1` 并写入审计日志，实现**异常计费检测**。
 
 | 场景 | usage_source | status | 配额统计依据 |
-| :--- | :--- | :--- | :--- |
+| --- | --- | --- | --- |
 | 正常完成，厂商返回 usage | PROVIDER | SUCCESS | 厂商真实值 |
 | 流式中断 | ESTIMATED | INTERRUPTED | jtokkit 预估值 |
 | 厂商未返回 usage | ESTIMATED | SUCCESS | jtokkit 预估值 |
@@ -133,7 +133,7 @@ Provider Credential（真实大模型 API Key，加密托管）
 ```
 
 | 概念 | 说明 | 示例 |
-|---|---|---|
+| --- | --- | --- |
 | Team | 成本中心、预算池与管理边界（部门 / 项目组 / 应用 / 客户） | team-rd、team-cs、app-code-assistant |
 | User | 登录账号与成本责任人（员工 / 机器人 / 服务账号） | zhangsan、bot-ci、service-harness |
 | API Key | 调用 TokenLimit Proxy 的访问凭证，绑定 Team + User | tl_xxx（access_key + secret） |
@@ -153,16 +153,16 @@ USER        普通用户
 ```
 
 | 功能 | ADMIN | TEAM_ADMIN | USER |
-|---|---:|---:|---:|
-| 登录控制台 | ✅ | ✅ | ✅ |
-| 管理所有 Team / 创建 Team | ✅ | ❌ | ❌ |
-| 管理 Provider Credential / Team Model Policy | ✅ | ❌ | ❌ |
-| 配置系统 Gateway URL / 全局参数 | ✅ | ❌ | ❌ |
-| 管理本 Team User、分配个人额度、设置 quota_mode | ✅ | ✅ | ❌ |
-| 查看 Team 成本 | ✅ | ✅ | ❌ |
-| 创建自己的 API Key | ✅ | ✅ | ✅ |
-| 查看个人额度 / 用量 | ✅ | ✅ | ✅ |
-| 查看全局用量 | ✅ | ❌ | ❌ |
+| --- | :-: | :-: | :-: |
+| 登录控制台 | 是 | 是 | 是 |
+| 管理所有 Team / 创建 Team | 是 | 否 | 否 |
+| 管理 Provider Credential / Team Model Policy | 是 | 否 | 否 |
+| 配置系统 Gateway URL / 全局参数 | 是 | 否 | 否 |
+| 管理本 Team User、分配个人额度、设置 quota_mode | 是 | 是 | 否 |
+| 查看 Team 成本 | 是 | 是 | 否 |
+| 创建自己的 API Key | 是 | 是 | 是 |
+| 查看个人额度 / 用量 | 是 | 是 | 是 |
+| 查看全局用量 | 是 | 否 | 否 |
 
 ---
 
@@ -275,21 +275,21 @@ API Key 为**两段式凭证**：`accessKey`（公开标识 `tl_ak_` + 32 位 ba
 
 ```text
 Model Provider: OpenAI
-Base URL:       http://<tokenlimit-host>:8080/v1
+Base URL:       http://localhost:8080/v1   # 部署后替换为实际网关地址
 API Key:        tl_ak_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:sk_tl_XXXXXXXX...   # access_key 与 secret 用冒号拼接
 ```
 
 ### 2. DeepSeek Harness
 
 ```text
-Base URL: http://<tokenlimit-host>:8080/v1
+Base URL: http://localhost:8080/v1   # 部署后替换为实际网关地址
 API Key:  tl_ak_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:sk_tl_XXXXXXXX...   # 同上，两段式拼接
 ```
 
 ### 3. cURL
 
 ```bash
-curl http://<tokenlimit-host>:8080/v1/chat/completions \
+curl http://localhost:8080/v1/chat/completions \   # 部署后把 localhost 替换为实际网关地址
   -H "Authorization: Bearer tl_ak_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:sk_tl_XXXXXXXX..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -302,25 +302,34 @@ curl http://<tokenlimit-host>:8080/v1/chat/completions \
 ### 4. Java Client SDK（check / report 协议）
 
 ```java
-TokenLimitClient client = new TokenLimitClient(
-        TokenLimitConfig.builder("http://127.0.0.1:8080")
-                .apiKey("tl_ak_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")       // accessKey
-                .secret("sk_tl_xxxxxxxx...")    // secret，未配置则仅发送 Bearer <access_key>
-                .build());
+import com.tokenlimit.client.TokenLimitClient;
+import com.tokenlimit.client.TokenLimitConfig;
+import com.tokenlimit.client.TokenLimitException;
+import com.tokenlimit.common.dto.CheckResult;
 
-// 1. 调用大模型前：配额检查（责任链拦截：团队余额 → 个人余额 → 周期用量；预计算开启时按 jtokkit 预估量原子预扣）
-CheckResult result = client.check("deepseek-chat", 1000); // model + estimatedTokens
-if (!result.isAllowed()) {
-    throw new TokenLimitException(result.getReason());
+public class QuickStart {
+
+    public static void main(String[] args) {
+        // 创建客户端（Bearer <access_key>:<secret> 双向校验）
+        TokenLimitClient client = new TokenLimitClient(
+                TokenLimitConfig.builder("http://127.0.0.1:8080")
+                        .apiKey("tl_ak_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")    // accessKey
+                        .secret("sk_tl_xxxxxxxx...")    // secret，未配置则仅发送 Bearer <access_key>
+                        .build());
+
+        // 1. 调用大模型前：配额检查（责任链拦截：团队余额 → 个人余额 → 周期用量；预计算开启时按 jtokkit 预估量原子预扣）
+        CheckResult result = client.check("deepseek-chat", 1000); // model + estimatedTokens
+        if (!result.isAllowed()) {
+            throw new TokenLimitException(result.getReason());
+        }
+
+        // 2. 调用真实大模型 API（业务代码，此处省略，返回真实 token 用量）
+
+        // 3. 上报真实消耗（写入 usage_log 并累加配额）
+        client.report(result.getTraceId(), "deepseek-chat", "DEEPSEEK",
+                800, 180, 980, "SUCCESS", 1250L);
+    }
 }
-
-// 2. 调用真实大模型 API
-LlmResponse response = llmService.chat(prompt);
-
-// 3. 上报真实消耗（写入 usage_log 并累加配额）
-client.report(result.getTraceId(), "deepseek-chat", "DEEPSEEK",
-        response.getPromptTokens(), response.getCompletionTokens(),
-        response.getTotalTokens(), "SUCCESS", latencyMs);
 ```
 
 > 说明：网关模式下客户端只需配置 API Key 即可，无需关心供应商真实密钥；check / report 协议为 SDK 接入方（非 OpenAI 兼容客户端）提供。
@@ -332,7 +341,7 @@ client.report(result.getTraceId(), "deepseek-chat", "DEEPSEEK",
 ### Proxy API（数据面，OpenAI 兼容）
 
 | 方法 | 路径 | 说明 |
-|---|---|---|
+| --- | --- | --- |
 | `GET` | `/v1/models` | 列出可用模型 |
 | `POST` | `/v1/chat/completions` | Chat 补全（支持 stream） |
 | `POST` | `/v1/embeddings` | Embedding（可选） |
@@ -345,10 +354,9 @@ Authorization: Bearer <tokenlimit_api_key>
 
 客户端不需要也不允许传入 Team / User 信息，服务端根据 API Key 自动解析 `API Key → Team + User`。
 
-配额不足时返回：
+配额不足时返回 HTTP 429：
 
 ```json
-HTTP 429 Too Many Requests
 {
   "error": {
     "message": "TokenLimit quota exceeded: team monthly budget is exhausted",
@@ -361,7 +369,7 @@ HTTP 429 Too Many Requests
 ### Client API（SDK 数据面）
 
 | 方法 | 路径 | 说明 |
-|---|---|---|
+| --- | --- | --- |
 | `GET` | `/api/v1/health` | 健康检查 |
 | `POST` | `/api/v1/client/check` | 配额检查（只读 Redis used，不预扣，返回 traceId） |
 | `POST` | `/api/v1/client/report` | 用量上报（写入 usage_log、更新 Redis used） |
@@ -369,7 +377,7 @@ HTTP 429 Too Many Requests
 ### Admin API（管控面，`/api/v1/admin`）
 
 | 模块 | 端点 |
-|---|---|
+| --- | --- |
 | 认证 | `POST /auth/login`、`GET /auth/profile`、`POST /auth/change-password`、`POST /auth/logout` |
 | 大盘 | `GET /dashboard/stats`、`GET /dashboard/trend?days=7`、`GET /dashboard/top-teams?topN=5` |
 | Team | `GET/POST /teams`、`GET/PUT/DELETE /teams/{id}`、`PUT /teams/{id}/status` |
@@ -386,7 +394,7 @@ HTTP 429 Too Many Requests
 ### My API（`/api/v1/my`，个人中心）
 
 | 方法 | 路径 | 说明 |
-|---|---|---|
+| --- | --- | --- |
 | `GET` | `/overview` | 我的概览 |
 | `GET` | `/quota` | 我的额度 |
 | `GET` | `/usage` | 我的用量（分页） |
