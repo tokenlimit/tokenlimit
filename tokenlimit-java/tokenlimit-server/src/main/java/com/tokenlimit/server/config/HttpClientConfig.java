@@ -77,12 +77,11 @@ public class HttpClientConfig {
                 .setTimeToLive(TimeValue.ofMinutes(10))
                 .build();
 
-        PoolingHttpClientConnectionManager connectionManager = PoolingHttpClientConnectionManagerBuilder.create()
+        return PoolingHttpClientConnectionManagerBuilder.create()
                 .setDefaultSocketConfig(socketConfig)
                 .setDefaultConnectionConfig(connectionConfig)
                 .setMaxConnTotal(http.getMaxConnections())
                 .setMaxConnPerRoute(http.getMaxConnectionsPerRoute())
                 .build();
-        return connectionManager;
     }
 }
