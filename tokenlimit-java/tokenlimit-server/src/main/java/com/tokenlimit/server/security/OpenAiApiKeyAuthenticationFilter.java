@@ -26,7 +26,7 @@ import java.util.List;
  * {@code SecurityContext}：principal 为 {@link ApiKey} 身份，credentials 为原始凭证
  * {@code [accessKey, secret]}（供 {@code ProxyGatewayController} 用量上报使用）；
  * 失败直接写出 OpenAI 兼容错误（401 INVALID_API_KEY / API_KEY_DISABLED / API_KEY_EXPIRED），
- * 不再进入 Controller。与 {@link TokenAuthenticationFilter}（Web 管理会话）职责分离。</p>
+ * 不再进入 Controller。与 JWT 过滤器（Web 管理会话）职责分离。</p>
  */
 @Component
 public class OpenAiApiKeyAuthenticationFilter extends OncePerRequestFilter {

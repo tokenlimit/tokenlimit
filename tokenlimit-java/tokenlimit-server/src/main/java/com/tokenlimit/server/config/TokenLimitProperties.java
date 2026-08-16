@@ -32,6 +32,8 @@ public class TokenLimitProperties {
     private String hashPepper = "tokenlimit-dev-only-hash-pepper-change-me-in-production";
     /** Redis 故障降级（可用性优先）：true 时 Redis 异常按默认值放行，false 时抛出 */
     private boolean redisFallbackEnabled = true;
+    /** 配额检查模式：PREDUCT 预扣减（严格，防并发超卖）/ CHECK_ONLY 仅检查不扣减（宽松，并发下最后几次请求可能同时放行） */
+    private String quotaCheckMode = "PREDUCT";
     /** OpenAI Compatible 网关接口级限流 */
     private RateLimit rateLimit = new RateLimit();
     /** 上游 HTTP 客户端（连接池由 JVM 统一管理，配置化超时） */
@@ -77,23 +79,6 @@ public class TokenLimitProperties {
         this.maxEstimatedTokens = maxEstimatedTokens;
     }
 
-    /**
-     * @deprecated 自 v1.4 起 Admin 会话迁移为无状态 JWT，会话 TTL 配置不再生效；
-     * 保留仅用于回退参考（旧 Redis 会话代码 {@code AuthSession} 编译依赖）。
-     */
-    @Deprecated
-    public long getSessionTtlSeconds() {
-        return 1800;
-    }
-
-    /**
-     * @deprecated 同上，旧 Redis 会话代码回退参考保留。
-     */
-    @Deprecated
-    public int getMaxSessionsPerUser() {
-        return 1;
-    }
-
     public Jwt getJwt() {
         return jwt;
     }
@@ -132,6 +117,14 @@ public class TokenLimitProperties {
 
     public void setRedisFallbackEnabled(boolean redisFallbackEnabled) {
         this.redisFallbackEnabled = redisFallbackEnabled;
+    }
+
+    public String getQuotaCheckMode() {
+        return quotaCheckMode;
+    }
+
+    public void setQuotaCheckMode(String quotaCheckMode) {
+        this.quotaCheckMode = quotaCheckMode;
     }
 
     public RateLimit getRateLimit() {

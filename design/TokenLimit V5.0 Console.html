@@ -385,7 +385,7 @@
 
             <div class="login-tip">
                 V5.0 核心模型：Team → User → API Key。<br />
-                配额采用简单计数器模型。集成 jtokkit 做预估基准与异常检测。
+                配额采用预扣减模型（PREDUCT）：jtokkit 预估预扣，厂商真实值回滚结算。
             </div>
         </div>
     </div>
@@ -454,7 +454,7 @@
                                 <div class="page-title">Dashboard</div>
                                 <div class="page-desc">
                                     TokenLimit 作为 OpenAI Compatible Proxy，统一接入 Cursor / DeepSeek Harness。
-                                    配额采用简单计数器模型：调用前检查已用量，调用后累加厂商真实 usage。
+                                    配额采用预扣减模型：调用前按 jtokkit 预估量预扣，调用后回滚预扣、累加厂商真实 usage。
                                 </div>
                             </div>
                         </div>

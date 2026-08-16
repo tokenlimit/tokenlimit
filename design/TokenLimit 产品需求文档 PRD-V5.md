@@ -257,7 +257,6 @@ USER        普通用户
 不做 Python SDK。
 不做 RPM / TPM 限流。
 不做 API Key 级独立配额。
-不做预估冻结结算模型。
 ```
 
 ---
@@ -410,14 +409,23 @@ TokenLimit 对客户端统一暴露 OpenAI 兼容接口 (`/v1/chat/completions`)
 
 ### 7.1 配额模型
 
-采用**简单计数器模型**：
+V5.1 支持**双拦截策略**（配置项 `tokenlimit.quota-check-mode`）：
 
 ```text
-调用前：检查 used >= limit？拦截 : 放行
-调用后：used += actual_tokens（厂商返回的真实值）
+PREDUCT（默认，严格）：
+  调用前：判断剩余额度（limit - used - pre）> 0，按 jtokkit 预估量预扣
+          pre += est_tokens；预扣后剩余 < 0 则拦截
+  调用后：回滚预扣 pre -= est_tokens，再按厂商真实值累加 used += actual_tokens
+
+CHECK_ONLY（宽松）：
+  调用前：检查 used >= limit？拦截 : 放行（不预扣）
+  调用后：used += actual_tokens
+  并发下最后一次请求可能同时放行（超卖）
 ```
 
-不做预估冻结，不做预扣减。
+预扣值 = jtokkit 预估总 token（REQUEST_COUNT 规则为 1）；
+等大模型 API 返回真实 token 后，回滚预扣、进行真实扣减。
+预扣残留（check 后未 report）随周期 key TTL 自动清理。
 
 ### 7.2 配额对象
 
@@ -481,8 +489,8 @@ PERSONAL_FIRST_THEN_TEAM
 ### 7.7 本次超额处理
 
 ```text
-即使本次调用导致 used 超过 limit，也允许本次调用完成。
-下次调用时，基于更新后的 used 判断，会被拦截。
+PREDUCT（默认）：预扣后剩余 < 0 直接拦截，不给本次超额空间。
+CHECK_ONLY（宽松）：本次调用导致 used 超过 limit 也允许完成，下次拦截。
 超额幅度 = 一次调用的 token 消耗，通常在可控范围内。
 ```
 
@@ -501,13 +509,17 @@ hard_limit = limit
 ```text
 tokenlimit:quota:used:team:{team_code}:{limit_type}:{period}:{timeKey}
 tokenlimit:quota:used:user:{user_code}:{limit_type}:{period}:{timeKey}
+tokenlimit:quota:pre:team:{team_code}:{limit_type}:{period}:{timeKey}
+tokenlimit:quota:pre:user:{user_code}:{limit_type}:{period}:{timeKey}
 ```
+
+`used` 存已完成调用的真实用量（与 MySQL 聚合一致）；`pre` 存进行中请求的预扣总量（PREDUCT 模式）。
 
 示例：
 
 ```text
 tokenlimit:quota:used:team:team-rd:TOKEN:DAY:20260813
-tokenlimit:quota:used:user:zhangsan:TOKEN:DAY:20260813
+tokenlimit:quota:pre:team:team-rd:TOKEN:DAY:20260813
 ```
 
 ### 7.10 数据持久化
@@ -1250,8 +1262,8 @@ Team 成本看板增强。
 9. 客户端不直接持有真实供应商 API Key。
 10. Team Model Policy 决定 Team 能使用哪些模型。
 11. 第一版优先通过 OpenAI Compatible Proxy 接入 Cursor / DeepSeek Harness。
-12. 配额采用简单计数器模型：调用前检查 used，调用后累加真实值。
-13. 不做预估冻结结算，本次超额允许完成，下次拦截。
+12. 配额默认采用预扣减模型：调用前按 jtokkit 预估量预扣（Lua 原子），调用后回滚预扣、累加厂商真实值；也可切换为简单计数器（CHECK_ONLY）。
+13. 预扣后剩余不足即拦截（严格）；简单计数器模式下本次超额允许完成，下次拦截。
 14. 统一使用 jtokkit 做 token 预估基准。
 15. usage_log 同时记录预估值和真实值。
 16. 正常情况以厂商真实 usage 为准。

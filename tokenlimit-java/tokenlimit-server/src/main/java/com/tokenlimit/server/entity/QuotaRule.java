@@ -4,7 +4,8 @@ import com.baomidou.mybatisplus.annotation.TableName;
 
 /**
  * 配额规则（V5.0）.
- * <p>V5 采用简单计数器模型：规则仅描述「谁（targetType+targetCode）+ 哪个模型（model）+ 哪种额度（limitType）+ 限额（limitValue）+ 周期（period）」。</p>
+ * <p>V5.1 预扣减模型：规则描述「谁（targetType+targetCode）+ 哪个模型（model）+ 哪种额度（limitType）+ 限额（limitValue）+ 周期（period）」，
+ * check 按预估量预扣、report 回滚预扣后按真实值扣减。</p>
  * <p>配额状态：ENABLED / DISABLED。</p>
  */
 @TableName("tl_quota_rule")

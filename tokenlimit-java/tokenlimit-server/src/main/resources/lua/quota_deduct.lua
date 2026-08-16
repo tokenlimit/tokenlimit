@@ -1,19 +1,26 @@
 -- =============================================================
--- 配额扣减 Lua 脚本
+-- Quota pre-deduct script (check phase, PREDUCT mode)
 --
--- 输入：
---   KEYS[1]  = 配额使用量 key
---   ARGV[1]  = 本次扣减量（estimated tokens）
---   ARGV[2]  = 配额上限（limit value）
---   ARGV[3]  = key 过期时间（秒）
+-- Dual-key design:
+--   used key = real consumption of finished calls (consistent with MySQL aggregation)
+--   pre  key = pre-deducted total of in-flight requests (estimated tokens)
+-- Rule: used + pre + delta > limit -> reject (remaining < 0 after pre-deduct)
 --
--- 返回：
---   1 = 扣减成功（未超限）
---   0 = 超限拒绝
---   2 = 上限配置异常（limit <= 0）
+-- Input:
+--   KEYS[1] = used key
+--   KEYS[2] = pre key
+--   ARGV[1] = pre-deduct amount (estimated tokens; 1 for REQUEST_COUNT rule)
+--   ARGV[2] = quota limit (limit value)
+--   ARGV[3] = key TTL in seconds (remaining period; set on first creation)
+--
+-- Return:
+--   1 = pre-deduct ok
+--   0 = rejected (over limit, nothing deducted)
+--   2 = bad config (limit <= 0)
 -- =============================================================
 
 local used = tonumber(redis.call('GET', KEYS[1]) or '0')
+local pre = tonumber(redis.call('GET', KEYS[2]) or '0')
 local delta = tonumber(ARGV[1])
 local limit = tonumber(ARGV[2])
 
@@ -21,14 +28,14 @@ if limit == nil or limit <= 0 then
     return 2
 end
 
-if used + delta > limit then
+if used + pre + delta > limit then
     return 0
 end
 
-redis.call('INCRBY', KEYS[1], delta)
+redis.call('INCRBY', KEYS[2], delta)
 
-if redis.call('EXISTS', KEYS[1]) == 1 and redis.call('TTL', KEYS[1]) < 0 then
-    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))
+if redis.call('TTL', KEYS[2]) < 0 then
+    redis.call('EXPIRE', KEYS[2], tonumber(ARGV[3]))
 end
 
 return 1

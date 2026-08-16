@@ -1,68 +1,84 @@
-# 配额模型
+# 配额模型（V5.1）
 
 ## 概述
 
-Token Limit 使用 **令牌桶算法** 控制每个命名空间的 token 消耗速率与总量。
+Token Limit 使用 **Redis 双 key + Lua 原子脚本** 的配额模型，支持两种拦截策略（配置项 `tokenlimit.quota-check-mode`，默认 `PREDUCT`）。
 
-## 令牌桶模型
+## 双拦截策略
 
-```
-        补充速率 refillRate（每秒补充 N 个 token）
-                    │
-                    ▼
-            ┌───────────────┐
-            │   令牌桶       │  容量 = burst
-            │  tokens: X/总  │
-            └──────┬────────┘
-                   │
-        每次 consume(namespace, tokens)
-                   │
-        ┌──────────▼──────────┐
-        │  tokens 充足？        │
-        │  X >= 请求 token     │
-        └───┬─────────────┬───┘
-         充足│          不足│
-            ▼            ▼
-      X -= tokens    返回 4029
-      返回 remaining   配额超限
+```text
+PREDUCT（默认，严格）：
+  调用前：判断剩余额度（limit - used - pre）> 0
+          按 jtokkit 预估量预扣：pre += est_tokens（Lua 原子）
+          任一规则预扣后剩余 < 0 → 拦截（回滚已预扣规则）
+  调用后：回滚预扣 pre -= est_tokens
+          按厂商真实值累加 used += actual_tokens
+  并发安全性：预扣与检查在同一个 Lua 脚本内完成，天然防并发超卖
+
+CHECK_ONLY（宽松）：
+  调用前：检查 used >= limit？拦截 : 放行（不预扣）
+  调用后：used += actual_tokens
+  并发下最后一次请求可能同时放行（超卖）
 ```
 
-## 关键参数
+预扣值 = jtokkit 预估总 token（`REQUEST_COUNT` 规则为 1）。
 
-| 参数 | 说明 | 默认 |
+## Redis Key 结构
+
+```text
+{prefix}:quota:used:{targetType}:{targetCode}:{limitType}:{period}:{timeKey}
+{prefix}:quota:pre:{targetType}:{targetCode}:{limitType}:{period}:{timeKey}
+```
+
+- `used`：已完成调用的真实用量，与 MySQL `usage_log` 聚合一致；
+- `pre`：进行中请求的预扣总量（PREDUCT 模式）；
+- `targetType`：`team` / `user`；
+- `timeKey`：周期时间片（DAY 为 `yyyyMMdd`，MONTH 为 `yyyyMM`，TOTAL 为 `total`）。
+
+示例：
+
+```text
+tokenlimit:quota:used:team:team-rd:TOKEN:DAY:20260813
+tokenlimit:quota:pre:team:team-rd:TOKEN:DAY:20260813
+```
+
+两个 key 均设置周期剩余时间 TTL；周期滚动时自动清零。
+预扣残留（check 后未 report）随周期 key TTL 自动清理；check 上下文在 `check-context-ttl-seconds`（默认 3600 秒）后过期。
+
+## Lua 脚本
+
+| 脚本 | 阶段 | 语义 |
 | --- | --- | --- |
-| `maxTokens` | 桶的总容量（最大 token 数） | 由套餐决定 |
-| `refillRate` | 每秒补充 token 数 | 由套餐决定 |
-| `burst` | 突发容量，允许瞬时超出补充速率的额度 | 通常 = maxTokens |
-| `dimension` | 维度，同命名空间下细分 | 可选 |
+| `lua/quota_deduct.lua` | check | `used + pre + delta > limit` 返回 0（拒绝），否则 `pre += delta` |
+| `lua/quota_adjust.lua` | report | `pre -= rollback`（减到 0 删 key），`used += actual`（首次创建设 TTL） |
 
-## Redis 实现
+## check 流程
 
-每个命名空间维护以下键：
-
-```
-tokenlimit:{namespace}:{dimension}:bucket   →  当前 token 数
-tokenlimit:{namespace}:{dimension}:ts       →  上次补充时间戳
-```
-
-**补充逻辑**（Lua 脚本保证原子性）：
-
-```
-elapsed = now - ts
-add = elapsed * refillRate
-current = min(current + add, maxTokens)
-ts = now
+```text
+1. 鉴权（accessKey + secret 双向校验，HMAC-SHA256 + pepper）
+2. 校验 Team / User 状态
+3. Team 规则：PREDUCT 逐条 Lua 原子预扣 / CHECK_ONLY 只读检查
+   任一失败 → 429 TEAM_QUOTA_EXCEEDED（PREDUCT 先回滚已预扣规则）
+4. 按 User.quota_mode 决定抵扣来源：
+   - PERSONAL_ONLY：User 规则预扣/检查，失败 → 429 USER_QUOTA_EXCEEDED
+   - TEAM_ONLY：consumeFrom = TEAM（不碰 User 规则）
+   - PERSONAL_FIRST_THEN_TEAM：User 预扣失败 → 回滚 User 预扣，团队兜底
+5. 保存 check 上下文（traceId → team/apiKeyId/user/model/预估/consumeFrom/规则/模式）
 ```
 
-## 配额类型
+## report 流程
 
-| 类型 | 说明 |
-| --- | --- |
-| **单次消耗** | 每次调用消耗固定 token 数，如 LLM 输入 |
-| **动态消耗** | 根据实际 token 数上报，如流式输出后结算 |
+```text
+1. 读取 check 上下文（缺失 → TRACE_NOT_FOUND）
+2. 判定 usage_source（PROVIDER / ESTIMATED）与异常检测（偏差 > 50% 标记 anomaly）
+3. 先写 MySQL usage_log（事实来源，异步）
+4. 再更新 Redis（PREDUCT：settle 回滚预扣 + 累加真实值；CHECK_ONLY：仅累加）
+5. 删除 check 上下文
+```
+
+`consumeFrom=PERSONAL` 时同时结算 Team 与 User 规则；`=TEAM` 时仅结算 Team（团队兜底，个人额度不动）。
 
 ## 与速率限制的区别
 
-- **速率限制**（rate limit）：限制每秒请求次数。
-- **配额控制**（quota）：限制累计/总可用资源量。
-- Token Limit 二者兼有：`refillRate` 控制补充速率（速率维度），`maxTokens` 控制总量（配额维度）。
+- **速率限制**（rate limit）：限制每秒请求次数（`tokenlimit.rate-limit`，默认关闭）。
+- **配额控制**（quota）：限制累计/总可用资源量（token / 费用 / 次数）。

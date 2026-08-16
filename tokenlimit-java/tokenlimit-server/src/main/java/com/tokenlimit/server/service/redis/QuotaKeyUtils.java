@@ -6,11 +6,13 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Redis Key 生成工具（V5.0）.
+ * Redis Key 生成工具（V5.1）.
  *
- * <p>Key 结构：{prefix}:quota:used:{targetType}:{targetCode}:{limitType}:{period}:{timeKey}
+ * <p>Key 结构：{prefix}:quota:{used|pre}:{targetType}:{targetCode}:{limitType}:{period}:{timeKey}
  * <br>示例：tokenlimit:quota:used:team:team-rd:TOKEN:DAY:20260813
- * <br>V5 不再包含 model 维度；timeKey 即周期时间片（DAY 为 yyyyMMdd，MONTH 为 yyyyMM，TOTAL 为 total）。</p>
+ * <br>V5.1 双 key：used 存已完成调用的真实用量（与 MySQL 聚合一致），
+ * pre 存进行中请求的预扣总量（PREDUCT 模式）。
+ * <br>timeKey 即周期时间片（DAY 为 yyyyMMdd，MONTH 为 yyyyMM，TOTAL 为 total）。</p>
  */
 public final class QuotaKeyUtils {
 
@@ -23,7 +25,7 @@ public final class QuotaKeyUtils {
     }
 
     /**
-     * 生成配额使用量 Key（V5 简单计数器）.
+     * 生成配额使用量 Key（used：已完成调用的真实用量）.
      *
      * @param prefix     前缀
      * @param targetType 目标类型（team / user）
@@ -35,8 +37,21 @@ public final class QuotaKeyUtils {
      */
     public static String quotaKey(String prefix, String targetType, String targetCode,
                                   String limitType, Period period, LocalDateTime now) {
+        return key(prefix, "used", targetType, targetCode, limitType, period, now);
+    }
+
+    /**
+     * 生成配额预扣 Key（pre：进行中请求的预扣总量，PREDUCT 模式）.
+     */
+    public static String preQuotaKey(String prefix, String targetType, String targetCode,
+                                     String limitType, Period period, LocalDateTime now) {
+        return key(prefix, "pre", targetType, targetCode, limitType, period, now);
+    }
+
+    private static String key(String prefix, String segment, String targetType, String targetCode,
+                              String limitType, Period period, LocalDateTime now) {
         String bucket = periodBucket(period, now);
-        return prefix + ":quota:used:"
+        return prefix + ":quota:" + segment + ":"
                 + targetType.toLowerCase() + ":"
                 + targetCode + ":"
                 + limitType.toUpperCase() + ":"

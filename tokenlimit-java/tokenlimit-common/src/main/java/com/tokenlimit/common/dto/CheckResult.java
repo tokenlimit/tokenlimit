@@ -3,9 +3,9 @@ package com.tokenlimit.common.dto;
 import java.io.Serializable;
 
 /**
- * 配额检查结果（PRD V5.0）.
- * <p>V5.0 采用简单计数器模型：check 阶段读取已用量，判定 used + estimated &gt; limit；
- * 放行后 report 阶段再按实际用量累加，不做预扣减。</p>
+ * 配额检查结果（PRD V5.1）.
+ * <p>V5.1 双模式：PREDUCT（默认）check 阶段按预估量 Lua 原子预扣（剩余 &lt; 0 拦截），
+ * report 阶段回滚预扣、按实际用量累加；CHECK_ONLY 模式 check 只读不预扣。</p>
  */
 public class CheckResult implements Serializable {
 

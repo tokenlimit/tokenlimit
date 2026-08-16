@@ -4,25 +4,53 @@ import com.tokenlimit.common.enums.Period;
 import com.tokenlimit.server.config.TokenLimitProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.Duration;
+import java.util.List;
 
 /**
- * 基于 Redis 的简单计数器配额服务（V5.0）.
- * <p>V5 不再使用 Lua 预扣减脚本：
+ * 基于 Redis 的配额服务（V5.1）.
+ * <p>双模式（{@code tokenlimit.quota-check-mode}）：</p>
  * <ul>
- *   <li>check 阶段：只读 used（GET），不做任何扣减/冻结。</li>
- *   <li>report 阶段：used += actual_tokens（INCRBY），并设置周期 TTL。</li>
+ *   <li><b>PREDUCT（默认，严格）</b>：check 阶段用 Lua 原子预扣（used + pre + est &gt; limit 拒绝），
+ *       report 阶段回滚预扣、累加真实用量。used 与 pre 分离，used 与 MySQL 聚合一致。</li>
+ *   <li><b>CHECK_ONLY（宽松）</b>：check 只读 used 判断（used ≥ limit 拒绝），不扣减，
+ *       并发下最后几次请求可能同时放行（超卖），report 阶段直接累加。</li>
  * </ul>
- * Redis 是实时缓存，MySQL 是事实来源（先写 MySQL，再更新 Redis）。</p>
+ * Redis 是实时缓存，MySQL 是事实来源（先写 MySQL，再更新 Redis）。
+ * 预扣残留（check 后未 report）随周期 key TTL 自动清理。</p>
  */
 @Service
 public class QuotaRedisService {
 
     private static final Logger log = LoggerFactory.getLogger(QuotaRedisService.class);
+
+    /** Lua 原子预扣脚本（check 阶段）：used + pre + delta &gt; limit 拒绝，否则 pre += delta */
+    private static final DefaultRedisScript<Long> PRE_DEDUCT_SCRIPT = new DefaultRedisScript<>(
+            loadScript("lua/quota_deduct.lua"), Long.class);
+
+    /** Lua 结算脚本（report 阶段）：回滚预扣（pre -= rollback）+ 累加真实用量（used += actual） */
+    private static final DefaultRedisScript<Long> ADJUST_SCRIPT = new DefaultRedisScript<>(
+            loadScript("lua/quota_adjust.lua"), Long.class);
+
+    /**
+     * 读取 classpath 下的 Lua 脚本内容（UTF-8，规避平台默认编码差异）.
+     */
+    private static String loadScript(String path) {
+        try (InputStream in = new ClassPathResource(path).getInputStream()) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to load Lua script: " + path, e);
+        }
+    }
 
     private final StringRedisTemplate redisTemplate;
     private final TokenLimitProperties properties;
@@ -33,7 +61,7 @@ public class QuotaRedisService {
     }
 
     /**
-     * 读取当前已用量（V5 简单计数器，无预扣）。
+     * 读取当前已用量（used：已完成调用的真实用量）.
      *
      * @param targetType team / user
      * @param targetCode 目标编码
@@ -58,7 +86,19 @@ public class QuotaRedisService {
     }
 
     /**
-     * 累加用量（report 阶段，调用后生效）.
+     * 读取当前预扣量（pre：进行中请求的预扣总和，PREDUCT 模式）.
+     * <p>用于计算剩余额度（limit - used - pre）展示；check 阶段的判定在 Lua 脚本内原子完成。</p>
+     */
+    public long readPreUsed(String targetType, String targetCode, String limitType,
+                            Period period, LocalDateTime now) {
+        String key = QuotaKeyUtils.preQuotaKey(properties.getRedisPrefix(), targetType, targetCode,
+                limitType, period, now);
+        String pre = redisTemplate.opsForValue().get(key);
+        return pre == null ? 0 : Long.parseLong(pre);
+    }
+
+    /**
+     * 累加用量（report 阶段 CHECK_ONLY 模式，调用后生效）.
      * <p>INCRBY 后若 key 为首次创建，设置周期 TTL 避免陈旧数据堆积。</p>
      *
      * @param targetType team / user
@@ -88,6 +128,88 @@ public class QuotaRedisService {
         return used == null ? 0 : used;
     }
 
+    // ==================== 预扣减（PREDUCT 模式） ====================
+
+    /**
+     * 原子预扣（check 阶段，PREDUCT 模式）.
+     * <p>Lua 脚本内完成 检查 + 预扣：used + pre + delta &gt; limit 返回 0（拒绝，本次不扣），
+     * 否则 pre += delta（预扣成功）。单条规则一次调用，天然防并发超卖。</p>
+     *
+     * @return 1=预扣成功 / 0=超限拒绝 / 2=上限配置异常（limit ≤ 0）
+     */
+    public int preDeduct(String targetType, String targetCode, String limitType,
+                         Period period, LocalDateTime now, long amount, long limit) {
+        String usedKey = QuotaKeyUtils.quotaKey(properties.getRedisPrefix(), targetType, targetCode,
+                limitType, period, now);
+        String preKey = QuotaKeyUtils.preQuotaKey(properties.getRedisPrefix(), targetType, targetCode,
+                limitType, period, now);
+        try {
+            Long result = redisTemplate.execute(PRE_DEDUCT_SCRIPT,
+                    List.of(usedKey, preKey),
+                    String.valueOf(amount), String.valueOf(limit),
+                    String.valueOf(QuotaKeyUtils.periodTtlSeconds(period, now)));
+            return result == null ? 2 : result.intValue();
+        } catch (Exception e) {
+            log.warn("Redis 配额预扣失败, rule={}:{}:{}:{}, amount={}: {}",
+                    targetType, targetCode, limitType, period, amount, e.getMessage());
+            // Redis 异常时按配置降级：放行（不预扣，report 阶段直接真实累加）或抛出（拒绝）
+            if (properties.isRedisFallbackEnabled()) {
+                return 1;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 结算（report 阶段，PREDUCT 模式）：回滚预扣 + 累加真实用量.
+     * <p>Lua 脚本内完成：pre -= rollback（减到 0 删 key），used += actual（首次创建设置周期 TTL）。</p>
+     *
+     * @param rollbackAmount 预扣回滚量（与 check 阶段预扣量一致；0 表示未预扣）
+     * @param actualAmount   真实扣减量（厂商返回真实 token 数 / 调用次数 1；0 表示无用量）
+     * @return 累加后的 used 值
+     */
+    public long adjust(String targetType, String targetCode, String limitType,
+                       Period period, LocalDateTime now, long rollbackAmount, long actualAmount) {
+        String usedKey = QuotaKeyUtils.quotaKey(properties.getRedisPrefix(), targetType, targetCode,
+                limitType, period, now);
+        String preKey = QuotaKeyUtils.preQuotaKey(properties.getRedisPrefix(), targetType, targetCode,
+                limitType, period, now);
+        try {
+            Long used = redisTemplate.execute(ADJUST_SCRIPT,
+                    List.of(usedKey, preKey),
+                    String.valueOf(rollbackAmount), String.valueOf(actualAmount),
+                    String.valueOf(QuotaKeyUtils.periodTtlSeconds(period, now)));
+            return used == null ? 0 : used;
+        } catch (Exception e) {
+            log.error("Redis 配额结算失败 rule={}:{}:{}:{}, rollback={}, actual={}: {}",
+                    targetType, targetCode, limitType, period, rollbackAmount, actualAmount, e.getMessage());
+            // Redis 故障时不中断流程：MySQL 已持久化，Redis 可后续从 MySQL 恢复
+            return 0;
+        }
+    }
+
+    /**
+     * 回滚预扣（check 阶段多规则预扣部分失败时补偿；或 report 前异常兜底）.
+     * <p>非原子补偿操作，pre 减到 0 时删除 key。</p>
+     */
+    public void rollbackPre(String targetType, String targetCode, String limitType,
+                            Period period, LocalDateTime now, long amount) {
+        if (amount <= 0) {
+            return;
+        }
+        try {
+            String preKey = QuotaKeyUtils.preQuotaKey(properties.getRedisPrefix(), targetType, targetCode,
+                    limitType, period, now);
+            Long pre = redisTemplate.opsForValue().increment(preKey, -amount);
+            if (pre != null && pre <= 0) {
+                redisTemplate.delete(preKey);
+            }
+        } catch (Exception e) {
+            log.warn("Redis 回滚预扣失败, rule={}:{}:{}:{}, amount={}",
+                    targetType, targetCode, limitType, period, amount, e);
+        }
+    }
+
     /**
      * 根据规则信息构建配额 key（供上层复用）.
      */
@@ -97,7 +219,7 @@ public class QuotaRedisService {
                 limitType, period, now);
     }
 
-    // ==================== check 上下文（V5：traceId 关联，不做预扣） ====================
+    // ==================== check 上下文（traceId 关联 check/report） ====================
 
     /**
      * 保存 check 上下文：check 放行时记录 traceId → 上下文信息，report 时读取.

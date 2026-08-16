@@ -34,11 +34,14 @@ POST /v1/embeddings         # 可选
 
 ### 2. 配额控制与事前拦截
 
-采用**简单计数器模型**，调用真实大模型 **之前** 直接拦截，避免产生额外费用：
+双拦截策略（配置项 `tokenlimit.quota-check-mode`），调用真实大模型 **之前** 拦截，避免产生额外费用：
 
 ```text
-调用前：读取 Redis used，used >= limit ？拦截 : 放行
-调用后：used += actual_tokens（厂商返回的真实值）
+PREDUCT（默认，严格）：调用前按 jtokkit 预估量 Lua 原子预扣
+  剩余额度 = limit - used - pre；预扣后剩余 < 0 拦截
+  调用后回滚预扣，按厂商真实值扣减
+CHECK_ONLY（宽松）：调用前只读 Redis used，used >= limit 拦截
+  并发下最后一次请求可能同时放行（超卖）
 ```
 
 支持的多级配额对象、类型与周期：
@@ -164,7 +167,7 @@ Cursor / DeepSeek Harness / AI Client / 业务应用
 |   2. 校验 API Key 状态 / 过期时间                       |
 |   3. 校验 Team Model Policy（模型是否允许）              |
 |   4. jtokkit 预估 prompt_tokens                        |
-|   5. 配额检查（读 Redis used）                          |
+|   5. 配额检查（PREDUCT 预扣 / CHECK_ONLY 读 used）      |
 |   6. 查找 Provider Credential                          |
 |   7. 转发请求到真实模型供应商（流式透传）                 |
 |   8. 采集真实 Usage → 写入 MySQL usage_log              |
@@ -292,7 +295,7 @@ TokenLimitClient client = new TokenLimitClient(
                 .secret("sk_tl_xxxxxxxx...")    // secret，未配置则仅发送 Bearer <access_key>
                 .build());
 
-// 1. 调用大模型前：配额检查（只读 Redis，不预扣）
+// 1. 调用大模型前：配额检查（默认 PREDUCT：jtokkit 预估 + 原子预扣；可切换 CHECK_ONLY 只读不预扣）
 CheckResult result = client.check("deepseek-chat", 1000); // model + estimatedTokens
 if (!result.isAllowed()) {
     throw new TokenLimitException(result.getReason());
@@ -467,7 +470,7 @@ Redis 数据丢失：从 MySQL 重新聚合恢复。
 ```text
 ✅ OpenAI Compatible Proxy（/v1/chat/completions、/v1/models）
 ✅ API Key 鉴权与生命周期管理
-✅ Team / User 配额控制（简单计数器模型，事前拦截）
+✅ Team / User 配额控制（预扣减模型，事前拦截）
 ✅ Provider Credential 托管 + Team Model Policy
 ✅ jtokkit Token 预估与异常检测
 ✅ 用量统计、成本归属、审计日志
@@ -484,7 +487,6 @@ Redis 数据丢失：从 MySQL 重新聚合恢复。
 不做 SSO / MFA
 不做 RPM / TPM 限流
 不做 API Key 级独立配额
-不做预估冻结结算模型
 ```
 
 ### Roadmap
@@ -503,7 +505,7 @@ V2.0  供应商账单导入、账单对账、异常计费分析、企业 AI FinO
 
 - [x] 产品定位与核心概念设计（PRD V5.0）；
 - [x] Java Maven 多模块工程（Java 21 / Spring Boot 3 / MyBatis-Plus / Redis / jtokkit），`mvn compile` 通过；
-- [x] 简单计数器配额模型（check 只读 Redis 不预扣，report 累加真实值，check/report 上下文通过 traceId 关联）；
+- [x] 预扣减配额模型（PREDUCT：check 按 jtokkit 预估量 Lua 原子预扣，report 回滚预扣 + 累加真实值；可切换 CHECK_ONLY 简单计数器，check/report 上下文通过 traceId 关联）；
 - [x] OpenAI Compatible Proxy（`/v1/chat/completions` / `/v1/models` / `/v1/embeddings`，流式透传）：
   - API Key 鉴权（INVALID_API_KEY / API_KEY_DISABLED / API_KEY_EXPIRED）；
   - Team Model Policy 模型策略校验（MODEL_NOT_ALLOWED，`/v1/models` 按 Team 返回可用模型）；
@@ -517,7 +519,7 @@ V2.0  供应商账单导入、账单对账、异常计费分析、企业 AI FinO
 - [x] 管理端 REST 接口（Team/User/ApiKey/QuotaRule/Provider/ModelPolicy/Usage/Audit/Dashboard/Settings/Meta/Auth）；
 - [x] 个人中心（概览 / 额度 / 用量 / 流水 / 账单 / API Key）；
 - [x] Console 前端（Vue 3 + Element Plus）；
-- [x] `deploy/mysql/init/init.sql` 同步 V5 结构（tl_quota_rule 去 rule_code/priority 加 status；tl_usage_log 增加 estimated_* / usage_source / anomaly_* 列；设置项适配简单计数器模型）。
+- [x] `deploy/mysql/init/init.sql` 同步 V5 结构（tl_quota_rule 去 rule_code/priority 加 status；tl_usage_log 增加 estimated_* / usage_source / anomaly_* 列）。
 
 ### 后续联调（需启动 MySQL / Redis / Server）
 
