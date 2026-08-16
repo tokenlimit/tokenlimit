@@ -92,6 +92,9 @@
         <el-form-item label="过期时间">
           <el-date-picker v-model="form.expireAt" type="datetime" placeholder="可空（永不过期）" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" />
         </el-form-item>
+        <el-form-item label="模型白名单">
+          <el-input v-model="form.allowedModels" placeholder="逗号分隔的模型列表，如 gpt-4o,gpt-4o-mini；空表示全部（PRD 10.1）" />
+        </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="form.status" style="width: 100%" :disabled="!!form.id">
             <el-option v-for="s in apiKeyStatuses" :key="s" :label="statusText(s)" :value="s" />
@@ -168,6 +171,7 @@ const form = reactive<ApiKey>({
   userCode: '',
   keyName: '',
   expireAt: undefined,
+  allowedModels: undefined,
   status: 'ENABLED'
 })
 
@@ -230,6 +234,7 @@ function openDialog(row?: ApiKey) {
     userCode: '',
     keyName: '',
     expireAt: undefined,
+    allowedModels: undefined,
     status: 'ENABLED'
   })
   if (row) Object.assign(form, row)

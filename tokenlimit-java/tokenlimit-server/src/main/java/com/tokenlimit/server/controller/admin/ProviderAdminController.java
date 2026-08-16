@@ -6,11 +6,13 @@ import com.tokenlimit.common.api.BusinessException;
 import com.tokenlimit.common.api.ErrorCode;
 import com.tokenlimit.common.api.Result;
 import com.tokenlimit.common.dto.PageResult;
+import com.tokenlimit.server.entity.AuditLog;
 import com.tokenlimit.server.entity.ProviderCredential;
 import com.tokenlimit.server.entity.Team;
 import com.tokenlimit.server.entity.TeamModelPolicy;
 import com.tokenlimit.server.entity.User;
 import com.tokenlimit.server.enums.LlmProvider;
+import com.tokenlimit.server.repository.mapper.AuditLogMapper;
 import com.tokenlimit.server.repository.mapper.ProviderCredentialMapper;
 import com.tokenlimit.server.repository.mapper.TeamModelPolicyMapper;
 import com.tokenlimit.server.security.SecurityUtils;
@@ -44,11 +46,14 @@ public class ProviderAdminController {
 
     private final ProviderCredentialMapper providerCredentialMapper;
     private final TeamModelPolicyMapper teamModelPolicyMapper;
+    private final AuditLogMapper auditLogMapper;
 
     public ProviderAdminController(ProviderCredentialMapper providerCredentialMapper,
-                                   TeamModelPolicyMapper teamModelPolicyMapper) {
+                                   TeamModelPolicyMapper teamModelPolicyMapper,
+                                   AuditLogMapper auditLogMapper) {
         this.providerCredentialMapper = providerCredentialMapper;
         this.teamModelPolicyMapper = teamModelPolicyMapper;
+        this.auditLogMapper = auditLogMapper;
     }
 
     @GetMapping
@@ -153,6 +158,7 @@ public class ProviderAdminController {
         }
         providerCredentialMapper.updateById(credential);
         credential.setApiKeyEnc(null);
+        writeAudit(credential, "{\"action\":\"update\"}");
         return Result.success(credential);
     }
 
@@ -167,6 +173,7 @@ public class ProviderAdminController {
         credential.setStatus("ENABLED".equals(credential.getStatus()) ? "DISABLED" : "ENABLED");
         providerCredentialMapper.updateById(credential);
         credential.setApiKeyEnc(null);
+        writeAudit(credential, "{\"action\":\"toggle\",\"status\":\"" + credential.getStatus() + "\"}");
         return Result.success(credential);
     }
 
@@ -222,6 +229,25 @@ public class ProviderAdminController {
             return SecurityUtils.requireSession().getUsername();
         } catch (Exception e) {
             return "system";
+        }
+    }
+
+    /**
+     * 写审计日志（PRD 13.1：UPDATE_PROVIDER_CREDENTIAL，凭证更新/启停均记录，不记录密钥内容）.
+     */
+    private void writeAudit(ProviderCredential credential, String detail) {
+        try {
+            AuditLog auditLog = new AuditLog();
+            auditLog.setTeamCode(credential.getTeamCode());
+            auditLog.setOperator(currentOperator());
+            auditLog.setEventType("UPDATE_PROVIDER_CREDENTIAL");
+            auditLog.setTargetType("PROVIDER");
+            auditLog.setTargetCode(credential.getCredentialCode());
+            auditLog.setDetail(detail);
+            auditLog.setResult("SUCCESS");
+            auditLogMapper.insert(auditLog);
+        } catch (Exception e) {
+            // 审计失败不影响主流程
         }
     }
 

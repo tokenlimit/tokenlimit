@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -80,6 +81,16 @@ public class ProxyGatewayController {
             }
 
             List<String> models = modelPolicyService.allowedModels(apiKey.getTeamCode());
+            // API Key 级模型白名单（PRD 10.1 allowed_models）：与团队可用模型取交集
+            if (StringUtils.hasText(apiKey.getAllowedModels())) {
+                List<String> keyModels = Arrays.stream(apiKey.getAllowedModels().split(","))
+                        .map(String::trim)
+                        .filter(StringUtils::hasText)
+                        .toList();
+                if (!keyModels.isEmpty()) {
+                    models = models.stream().filter(keyModels::contains).toList();
+                }
+            }
             ObjectNode root = objectMapper.createObjectNode();
             root.put("object", "list");
             var data = root.putArray("data");
@@ -166,6 +177,17 @@ public class ProxyGatewayController {
         } catch (BusinessException e) {
             writeOpenAiError(response, e.getCode(), e.getMessage());
             return;
+        }
+        // API Key 级模型白名单（PRD 10.1 allowed_models）：key 限定模型时，请求模型必须在内
+        if (StringUtils.hasText(apiKey.getAllowedModels())) {
+            boolean keyAllowed = Arrays.stream(apiKey.getAllowedModels().split(","))
+                    .map(String::trim)
+                    .anyMatch(model::equalsIgnoreCase);
+            if (!keyAllowed) {
+                writeOpenAiError(response, ErrorCode.FORBIDDEN.getCode(),
+                        "模型不在该 API Key 白名单内");
+                return;
+            }
         }
 
         // 6. Token 预估

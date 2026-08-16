@@ -8,6 +8,8 @@ import com.tokenlimit.server.entity.User;
 import com.tokenlimit.server.repository.mapper.ApiKeyMapper;
 import com.tokenlimit.server.repository.mapper.TeamMapper;
 import com.tokenlimit.server.repository.mapper.UserMapper;
+import com.tokenlimit.server.security.SecurityUtils;
+import com.tokenlimit.server.security.SessionInfo;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,6 +23,7 @@ import java.util.Map;
 /**
  * 管理端：下拉选项元数据（PRD V4.0）.
  * <p>已废除 Namespace，仅保留 Team / User / API Key 元数据。</p>
+ * <p>PRD 11.2：TEAM_ADMIN 下拉数据强制限缩到本 Team（团队仅自身，用户/Key 仅本团队）。</p>
  */
 @RestController
 @RequestMapping("/api/v1/admin/meta")
@@ -43,8 +46,12 @@ public class MetaAdminController {
      */
     @GetMapping("/teams")
     public Result<List<Team>> teams() {
+        // TEAM_ADMIN 只能看到自己的团队（PRD 11.2）
+        SessionInfo session = SecurityUtils.requireSession();
+        String teamCode = "TEAM_ADMIN".equals(session.getRole()) ? session.getTeamCode() : null;
         return Result.success(teamMapper.selectList(new LambdaQueryWrapper<Team>()
                 .eq(Team::getStatus, "ENABLED")
+                .eq(teamCode != null, Team::getTeamCode, teamCode)
                 .orderByDesc(Team::getCreatedAt)));
     }
 
@@ -54,6 +61,11 @@ public class MetaAdminController {
     @GetMapping("/api-keys")
     public Result<List<ApiKey>> apiKeys(@RequestParam(required = false) String teamCode,
                                         @RequestParam(required = false) String userCode) {
+        // TEAM_ADMIN 强制过滤为本团队（PRD 11.2）
+        SessionInfo session = SecurityUtils.requireSession();
+        if ("TEAM_ADMIN".equals(session.getRole())) {
+            teamCode = session.getTeamCode();
+        }
         return Result.success(apiKeyMapper.selectList(new LambdaQueryWrapper<ApiKey>()
                 .eq(teamCode != null && !teamCode.isBlank(), ApiKey::getTeamCode, teamCode)
                 .eq(userCode != null && !userCode.isBlank(), ApiKey::getUserCode, userCode)
@@ -66,6 +78,11 @@ public class MetaAdminController {
      */
     @GetMapping("/users")
     public Result<List<User>> users(@RequestParam(required = false) String teamCode) {
+        // TEAM_ADMIN 强制过滤为本团队（PRD 11.2）
+        SessionInfo session = SecurityUtils.requireSession();
+        if ("TEAM_ADMIN".equals(session.getRole())) {
+            teamCode = session.getTeamCode();
+        }
         return Result.success(userMapper.selectList(new LambdaQueryWrapper<User>()
                 .eq(teamCode != null && !teamCode.isBlank(), User::getTeamCode, teamCode)
                 .eq(User::getStatus, "ENABLED")
@@ -89,10 +106,12 @@ public class MetaAdminController {
         data.put("apiKeyStatuses", List.of("ENABLED", "DISABLED", "EXPIRED", "REVOKED"));
         data.put("limitTypes", List.of("TOKEN", "COST", "REQUEST_COUNT", "RPM", "TPM"));
         data.put("periods", List.of("MINUTE", "HOUR", "DAY", "WEEK", "MONTH", "YEAR", "TOTAL"));
+        // PRD 13.1：16 种审计事件全量下发
         data.put("auditEventTypes", List.of(
-                "LOGIN_SUCCESS", "LOGIN_FAILED", "CREATE_TEAM",
+                "LOGIN_SUCCESS", "LOGIN_FAILED", "CREATE_TEAM", "UPDATE_TEAM", "DISABLE_TEAM",
                 "CREATE_USER", "DISABLE_USER", "RESET_PASSWORD", "CREATE_API_KEY",
-                "DISABLE_API_KEY", "DELETE_API_KEY", "UPDATE_USER_QUOTA", "UPDATE_TEAM_QUOTA", "QUOTA_BLOCK"));
+                "DISABLE_API_KEY", "DELETE_API_KEY", "UPDATE_USER_QUOTA", "UPDATE_TEAM_QUOTA",
+                "UPDATE_PROVIDER_CREDENTIAL", "QUOTA_BLOCK", "USAGE_ANOMALY"));
         return Result.success(data);
     }
 }

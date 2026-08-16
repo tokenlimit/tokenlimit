@@ -10,6 +10,8 @@ import com.tokenlimit.server.entity.AuditLog;
 import com.tokenlimit.server.entity.User;
 import com.tokenlimit.server.repository.mapper.AuditLogMapper;
 import com.tokenlimit.server.repository.mapper.UserMapper;
+import com.tokenlimit.server.security.SecurityUtils;
+import com.tokenlimit.server.security.SessionInfo;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -30,6 +32,7 @@ import java.util.Map;
 /**
  * 管理端：用户 CRUD（PRD V2.0）.
  * <p>用户可配置登录账号（username，全局唯一）与初始密码；禁用用户后其 API Key 将不可调用。</p>
+ * <p>PRD 4.5 / 11.2：TEAM_ADMIN 只能管理本 Team 下的 User（list/create 强制 teamCode，其他操作校验归属）。</p>
  */
 @RestController
 @RequestMapping("/api/v1/admin/users")
@@ -54,6 +57,11 @@ public class UserAdminController {
             @RequestParam(required = false) String quotaMode,
             @RequestParam(required = false) String role,
             @RequestParam(required = false) String status) {
+        // TEAM_ADMIN 强制过滤为本团队用户（PRD 11.2），请求参数 teamCode 无效
+        SessionInfo session = SecurityUtils.requireSession();
+        if ("TEAM_ADMIN".equals(session.getRole())) {
+            teamCode = session.getTeamCode();
+        }
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<User>()
                 .eq(StringUtils.hasText(teamCode), User::getTeamCode, teamCode)
                 .and(StringUtils.hasText(keyword), w -> w
@@ -82,6 +90,11 @@ public class UserAdminController {
 
     @PostMapping
     public Result<User> create(@Valid @RequestBody CreateUserRequest req) {
+        // TEAM_ADMIN 只能在本 Team 下创建用户（PRD 11.2），忽略请求中的 teamCode
+        SessionInfo session = SecurityUtils.requireSession();
+        if ("TEAM_ADMIN".equals(session.getRole())) {
+            req.setTeamCode(session.getTeamCode());
+        }
         if (StringUtils.hasText(req.getTeamCode())
                 && StringUtils.hasText(req.getUserCode())
                 && userMapper.selectCount(new LambdaQueryWrapper<User>()
@@ -121,6 +134,7 @@ public class UserAdminController {
         require(id);
         user.setId(id);
         user.setUserCode(null); // 不允许修改编码
+        user.setTeamCode(null); // 不允许修改团队归属（防跨团队迁移越权）
         user.setPasswordHash(null); // 不允许直接改密码哈希
         userMapper.updateById(user);
         User updated = userMapper.selectById(id);
@@ -171,6 +185,12 @@ public class UserAdminController {
         if (user == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "用户不存在");
         }
+        // TEAM_ADMIN 只能操作本 Team 用户（PRD 11.2），防止跨团队越权
+        SessionInfo session = SecurityUtils.requireSession();
+        if ("TEAM_ADMIN".equals(session.getRole())
+                && !session.getTeamCode().equals(user.getTeamCode())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN.getCode(), "无权操作其他团队的用户");
+        }
         return user;
     }
 
@@ -185,7 +205,7 @@ public class UserAdminController {
             AuditLog auditLog = new AuditLog();
             auditLog.setTeamCode(teamCode);
             auditLog.setUserCode(userCode);
-            auditLog.setOperator("console");
+            auditLog.setOperator(currentOperator());
             auditLog.setEventType(eventType);
             auditLog.setTargetType(targetType);
             auditLog.setTargetCode(targetCode);
@@ -194,6 +214,16 @@ public class UserAdminController {
             auditLogMapper.insert(auditLog);
         } catch (Exception e) {
             // 审计失败不影响主流程
+        }
+    }
+
+    private String currentOperator() {
+        try {
+            SessionInfo session = SecurityUtils.currentSession();
+            return session != null && StringUtils.hasText(session.getUsername())
+                    ? session.getUsername() : "console";
+        } catch (Exception e) {
+            return "console";
         }
     }
 

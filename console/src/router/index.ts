@@ -95,7 +95,7 @@ const routes: RouteRecordRaw[] = [
         path: 'teams',
         name: 'Team',
         component: () => import('@/views/team/index.vue'),
-        meta: { title: '团队', roles: ADMIN_ROLES }
+        meta: { title: '团队', roles: SUPER_ROLES }
       },
       {
         path: 'api-keys',
@@ -125,7 +125,7 @@ const routes: RouteRecordRaw[] = [
         path: 'audits',
         name: 'Audit',
         component: () => import('@/views/audit/index.vue'),
-        meta: { title: '审计日志', roles: SUPER_ROLES }
+        meta: { title: '审计日志', roles: ADMIN_ROLES }
       },
       {
         path: 'reconciles',

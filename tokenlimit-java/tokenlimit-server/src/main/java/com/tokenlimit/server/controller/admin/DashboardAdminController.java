@@ -12,6 +12,8 @@ import com.tokenlimit.server.repository.mapper.QuotaRuleMapper;
 import com.tokenlimit.server.repository.mapper.TeamMapper;
 import com.tokenlimit.server.repository.mapper.UsageLogMapper;
 import com.tokenlimit.server.repository.mapper.UserMapper;
+import com.tokenlimit.server.security.SecurityUtils;
+import com.tokenlimit.server.security.SessionInfo;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,6 +31,7 @@ import java.util.Map;
 
 /**
  * 管理端：Dashboard 概览统计（PRD V4.0）.
+ * <p>PRD 11.2：TEAM_ADMIN 只统计本 Team 数据（Team Dashboard）；ADMIN 查看全局。</p>
  */
 @RestController
 @RequestMapping("/api/v1/admin/dashboard")
@@ -57,19 +60,24 @@ public class DashboardAdminController {
      */
     @GetMapping("/stats")
     public Result<Map<String, Object>> stats() {
-        long teams = teamMapper.selectCount(null);
-        long rules = quotaRuleMapper.selectCount(null);
+        String teamCode = teamScope();
+        long teams = teamCode == null ? teamMapper.selectCount(null)
+                : teamMapper.selectCount(new LambdaQueryWrapper<Team>().eq(Team::getTeamCode, teamCode));
+        long rules = quotaRuleMapper.selectCount(ruleScope(teamCode));
         LocalDateTime dayStart = LocalDate.now().atStartOfDay();
         LambdaQueryWrapper<UsageLog> todayWrapper = new LambdaQueryWrapper<UsageLog>()
-                .ge(UsageLog::getCreatedAt, dayStart);
+                .ge(UsageLog::getCreatedAt, dayStart)
+                .eq(teamCode != null, UsageLog::getTeamCode, teamCode);
         List<UsageLog> todayLogs = usageLogMapper.selectList(todayWrapper);
         long todayTokens = todayLogs.stream()
                 .mapToLong(l -> l.getTotalTokens() == null ? 0 : l.getTotalTokens())
                 .sum();
         long todayCalls = todayLogs.size();
 
-        long users = userMapper.selectCount(null);
-        long apiKeys = apiKeyMapper.selectCount(null);
+        long users = userMapper.selectCount(new LambdaQueryWrapper<User>()
+                .eq(teamCode != null, User::getTeamCode, teamCode));
+        long apiKeys = apiKeyMapper.selectCount(new LambdaQueryWrapper<ApiKey>()
+                .eq(teamCode != null, ApiKey::getTeamCode, teamCode));
 
         // 计费快照聚合（V5.3）：今日费用 = SUM(cost)，历史不可变
         BigDecimal todayCost = todayLogs.stream()
@@ -118,9 +126,11 @@ public class DashboardAdminController {
      */
     @GetMapping("/trend")
     public Result<List<Map<String, Object>>> trend(@RequestParam(defaultValue = "7") int days) {
+        String teamCode = teamScope();
         List<Map<String, Object>> result = new ArrayList<>();
         List<UsageLog> logs = usageLogMapper.selectList(new LambdaQueryWrapper<UsageLog>()
-                .ge(UsageLog::getCreatedAt, LocalDate.now().minusDays(days - 1L).atStartOfDay()));
+                .ge(UsageLog::getCreatedAt, LocalDate.now().minusDays(days - 1L).atStartOfDay())
+                .eq(teamCode != null, UsageLog::getTeamCode, teamCode));
         Map<String, Long> byDay = new LinkedHashMap<>();
         for (UsageLog log : logs) {
             String day = log.getCreatedAt().toLocalDate().toString();
@@ -141,8 +151,10 @@ public class DashboardAdminController {
      */
     @GetMapping("/top-teams")
     public Result<List<Map<String, Object>>> topTeams(@RequestParam(defaultValue = "5") int topN) {
+        String teamCode = teamScope();
         List<UsageLog> logs = usageLogMapper.selectList(new LambdaQueryWrapper<UsageLog>()
-                .ge(UsageLog::getCreatedAt, LocalDate.now().minusDays(30).atStartOfDay()));
+                .ge(UsageLog::getCreatedAt, LocalDate.now().minusDays(30).atStartOfDay())
+                .eq(teamCode != null, UsageLog::getTeamCode, teamCode));
         Map<String, Long> byTeam = new LinkedHashMap<>();
         for (UsageLog log : logs) {
             byTeam.merge(log.getTeamCode(), log.getTotalTokens() == null ? 0 : log.getTotalTokens(), Long::sum);
@@ -166,5 +178,31 @@ public class DashboardAdminController {
     private String resolveTeamName(String teamCode) {
         Team team = teamMapper.selectOne(new LambdaQueryWrapper<Team>().eq(Team::getTeamCode, teamCode).last("limit 1"));
         return team == null ? teamCode : team.getTeamName();
+    }
+
+    /**
+     * 当前角色可见的团队范围：TEAM_ADMIN 返回本团队编码，ADMIN 返回 null（全局）.
+     */
+    private String teamScope() {
+        SessionInfo session = SecurityUtils.requireSession();
+        return "TEAM_ADMIN".equals(session.getRole()) ? session.getTeamCode() : null;
+    }
+
+    /**
+     * 配额规则范围查询条件：TEAM_ADMIN 只统计本团队规则 + 本团队用户的 USER 规则.
+     */
+    private LambdaQueryWrapper<QuotaRule> ruleScope(String teamCode) {
+        if (teamCode == null) {
+            return null;
+        }
+        List<String> userCodes = userMapper.selectList(new LambdaQueryWrapper<User>()
+                        .eq(User::getTeamCode, teamCode))
+                .stream().map(User::getUserCode).toList();
+        return new LambdaQueryWrapper<QuotaRule>()
+                .and(w -> w.and(i -> i.eq(QuotaRule::getTargetType, "TEAM")
+                                .eq(QuotaRule::getTargetCode, teamCode))
+                        .or()
+                        .and(i -> i.eq(QuotaRule::getTargetType, "USER")
+                                .in(QuotaRule::getTargetCode, userCodes)));
     }
 }

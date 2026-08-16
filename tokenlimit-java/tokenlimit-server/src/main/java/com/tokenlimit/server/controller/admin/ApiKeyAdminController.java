@@ -8,8 +8,10 @@ import com.tokenlimit.common.api.Result;
 import com.tokenlimit.common.dto.PageResult;
 import com.tokenlimit.server.config.TokenLimitProperties;
 import com.tokenlimit.server.entity.ApiKey;
+import com.tokenlimit.server.entity.AuditLog;
 import com.tokenlimit.server.entity.User;
 import com.tokenlimit.server.repository.mapper.ApiKeyMapper;
+import com.tokenlimit.server.repository.mapper.AuditLogMapper;
 import com.tokenlimit.server.repository.mapper.UserMapper;
 import com.tokenlimit.server.security.SecurityUtils;
 import com.tokenlimit.server.security.SessionInfo;
@@ -35,7 +37,7 @@ import java.util.UUID;
 
 /**
  * 管理端：API Key 管理（PRD V5.0）.
- * <p>ADMIN/TEAM_ADMIN 管理全部；USER 仅管理自己的 API Key（自动按 userCode 过滤）。</p>
+ * <p>ADMIN 管理全部；TEAM_ADMIN 仅管理本团队（PRD 11.2）；USER 仅管理自己的 API Key（自动按 userCode 过滤）。</p>
  * <p>API Key 强绑定 team/user；access_key 全局唯一（格式 tl_ak_ + 32 位 base62）；
  * secret 明文仅创建/重置时返回一次，库中仅存哈希。</p>
  */
@@ -47,6 +49,7 @@ public class ApiKeyAdminController {
     private final ApiKeyMapper apiKeyMapper;
     private final UserMapper userMapper;
     private final TokenLimitProperties properties;
+    private final AuditLogMapper auditLogMapper;
 
     /** accessKey 随机段长度：32 位 base62 ≈ 190 bit 熵（对齐 GitHub PAT 36 位 / OpenAI 40+ 位的大厂策略） */
     private static final int ACCESS_KEY_RANDOM_LEN = 32;
@@ -58,10 +61,11 @@ public class ApiKeyAdminController {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     public ApiKeyAdminController(ApiKeyMapper apiKeyMapper, UserMapper userMapper,
-                                 TokenLimitProperties properties) {
+                                 TokenLimitProperties properties, AuditLogMapper auditLogMapper) {
         this.apiKeyMapper = apiKeyMapper;
         this.userMapper = userMapper;
         this.properties = properties;
+        this.auditLogMapper = auditLogMapper;
     }
 
     @GetMapping
@@ -98,18 +102,13 @@ public class ApiKeyAdminController {
     @GetMapping("/{id}")
     public Result<ApiKey> get(@PathVariable Long id) {
         ApiKey apiKey = require(id);
-        // USER 只能查看自己的 API Key
-        SessionInfo session = SecurityUtils.requireSession();
-        if ("USER".equals(session.getRole()) && apiKey != null
-                && !session.getUserCode().equals(apiKey.getUserCode())) {
-            return Result.success(null);
-        }
+        assertKeyOwned(apiKey);
         return Result.success(apiKey);
     }
 
     /**
      * 创建 API Key：生成 access_key + secret（secret 仅返回一次，库中仅存哈希）.
-     * <p>USER 角色只能为自己创建；ADMIN/TEAM_ADMIN 可为任意用户创建。</p>
+     * <p>USER 角色只能为自己创建；TEAM_ADMIN 只能为本 Team 用户创建（PRD 10.2）；ADMIN 可为任意用户创建。</p>
      */
     @PostMapping
     public Result<Map<String, Object>> create(@Valid @RequestBody ApiKey apiKey) {
@@ -120,6 +119,10 @@ public class ApiKeyAdminController {
         if (isUser) {
             apiKey.setTeamCode(session.getTeamCode());
             apiKey.setUserCode(session.getUserCode());
+        }
+        // TEAM_ADMIN 强制绑定为本团队（PRD 10.2：只能创建本 Team 下 User 的 API Key）
+        if ("TEAM_ADMIN".equals(session.getRole())) {
+            apiKey.setTeamCode(session.getTeamCode());
         }
 
         if (!StringUtils.hasText(apiKey.getTeamCode())
@@ -143,6 +146,11 @@ public class ApiKeyAdminController {
         if (isUser && !session.getUserCode().equals(user.getUserCode())) {
             throw new BusinessException(ErrorCode.FORBIDDEN.getCode(), "只能为自己创建 API Key");
         }
+        // TEAM_ADMIN 只能为本团队用户创建（防跨团队越权）
+        if ("TEAM_ADMIN".equals(session.getRole())
+                && !session.getTeamCode().equals(user.getTeamCode())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN.getCode(), "只能为本团队用户创建 API Key");
+        }
 
         String accessKey = genAccessKey();
         String secret = genSecret();
@@ -157,6 +165,7 @@ public class ApiKeyAdminController {
         apiKey.setKeyId(keyId);
         apiKey.setStatus(StringUtils.hasText(apiKey.getStatus()) ? apiKey.getStatus() : "ENABLED");
         apiKeyMapper.insert(apiKey);
+        writeAudit(apiKey, "CREATE_API_KEY", "{\"keyName\":\"" + apiKey.getKeyName() + "\"}");
 
         Map<String, Object> data = new HashMap<>();
         data.put("apiKey", apiKey);
@@ -166,18 +175,23 @@ public class ApiKeyAdminController {
 
     @PutMapping("/{id}")
     public Result<ApiKey> update(@PathVariable Long id, @RequestBody ApiKey apiKey) {
-        require(id);
+        ApiKey existed = require(id);
+        assertKeyOwned(existed);
         apiKey.setId(id);
         apiKey.setAccessKey(null); // 不允许修改 accessKey
         apiKey.setSecretHash(null);
+        apiKey.setTeamCode(null); // 不允许修改归属（防跨团队迁移越权）
+        apiKey.setUserCode(null);
         apiKeyMapper.updateById(apiKey);
         return Result.success(apiKeyMapper.selectById(id));
     }
 
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
-        require(id);
+        ApiKey apiKey = require(id);
+        assertKeyOwned(apiKey);
         apiKeyMapper.deleteById(id);
+        writeAudit(apiKey, "DELETE_API_KEY", null);
         return Result.success();
     }
 
@@ -187,6 +201,7 @@ public class ApiKeyAdminController {
     @PostMapping("/{id}/reset-secret")
     public Result<Map<String, Object>> resetSecret(@PathVariable Long id) {
         ApiKey apiKey = require(id);
+        assertKeyOwned(apiKey);
         String secret = genSecret();
         apiKey.setSecretHash(hashSecret(secret));
         apiKeyMapper.updateById(apiKey);
@@ -199,8 +214,12 @@ public class ApiKeyAdminController {
     @PutMapping("/{id}/status")
     public Result<Void> changeStatus(@PathVariable Long id, @RequestParam @NotBlank String status) {
         ApiKey apiKey = require(id);
+        assertKeyOwned(apiKey);
         apiKey.setStatus(status);
         apiKeyMapper.updateById(apiKey);
+        if (!"ENABLED".equals(status)) {
+            writeAudit(apiKey, "DISABLE_API_KEY", "{\"status\":\"" + status + "\"}");
+        }
         return Result.success();
     }
 
@@ -210,6 +229,52 @@ public class ApiKeyAdminController {
             throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "API Key 不存在");
         }
         return apiKey;
+    }
+
+    /**
+     * 归属校验（PRD 10.2 / 11.2）：USER 只能操作自己的 Key，TEAM_ADMIN 只能操作本团队 Key.
+     */
+    private void assertKeyOwned(ApiKey apiKey) {
+        SessionInfo session = SecurityUtils.requireSession();
+        if ("USER".equals(session.getRole())
+                && !session.getUserCode().equals(apiKey.getUserCode())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN.getCode(), "只能操作自己的 API Key");
+        }
+        if ("TEAM_ADMIN".equals(session.getRole())
+                && !session.getTeamCode().equals(apiKey.getTeamCode())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN.getCode(), "只能操作本团队的 API Key");
+        }
+    }
+
+    /**
+     * 写审计日志（PRD 13.1：CREATE_API_KEY / DISABLE_API_KEY / DELETE_API_KEY）.
+     */
+    private void writeAudit(ApiKey apiKey, String eventType, String detail) {
+        try {
+            AuditLog auditLog = new AuditLog();
+            auditLog.setTeamCode(apiKey.getTeamCode());
+            auditLog.setUserCode(apiKey.getUserCode());
+            auditLog.setApiKeyId(apiKey.getKeyId());
+            auditLog.setOperator(currentOperator());
+            auditLog.setEventType(eventType);
+            auditLog.setTargetType("API_KEY");
+            auditLog.setTargetCode(apiKey.getKeyId());
+            auditLog.setDetail(detail);
+            auditLog.setResult("SUCCESS");
+            auditLogMapper.insert(auditLog);
+        } catch (Exception e) {
+            // 审计失败不影响主流程
+        }
+    }
+
+    private String currentOperator() {
+        try {
+            SessionInfo session = SecurityUtils.currentSession();
+            return session != null && StringUtils.hasText(session.getUsername())
+                    ? session.getUsername() : "console";
+        } catch (Exception e) {
+            return "console";
+        }
     }
 
     private String genKeyId() {

@@ -6,6 +6,8 @@ import com.tokenlimit.common.api.Result;
 import com.tokenlimit.common.dto.PageResult;
 import com.tokenlimit.server.entity.AuditLog;
 import com.tokenlimit.server.repository.mapper.AuditLogMapper;
+import com.tokenlimit.server.security.SecurityUtils;
+import com.tokenlimit.server.security.SessionInfo;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,10 +18,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 管理端：审计日志查询（PRD V2.0，eventType 事件模型）.
+ * <p>PRD 11.2：TEAM_ADMIN 可查看本 Team 审计日志（强制 teamCode 过滤）；ADMIN 查看全局。</p>
  */
 @RestController
 @RequestMapping("/api/v1/admin/audits")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN')")
 public class AuditAdminController {
 
     private final AuditLogMapper auditLogMapper;
@@ -39,6 +42,11 @@ public class AuditAdminController {
             @RequestParam(required = false) String result,
             @RequestParam(required = false) String startTime,
             @RequestParam(required = false) String endTime) {
+        // TEAM_ADMIN 强制过滤为本团队审计（PRD 11.2），请求参数 teamCode 无效
+        SessionInfo session = SecurityUtils.requireSession();
+        if ("TEAM_ADMIN".equals(session.getRole())) {
+            teamCode = session.getTeamCode();
+        }
         LambdaQueryWrapper<AuditLog> wrapper = new LambdaQueryWrapper<AuditLog>()
                 .eq(StringUtils.hasText(teamCode), AuditLog::getTeamCode, teamCode)
                 .eq(StringUtils.hasText(eventType), AuditLog::getEventType, eventType)
@@ -54,6 +62,13 @@ public class AuditAdminController {
 
     @GetMapping("/{id}")
     public Result<AuditLog> get(@PathVariable Long id) {
-        return Result.success(auditLogMapper.selectById(id));
+        AuditLog auditLog = auditLogMapper.selectById(id);
+        // TEAM_ADMIN 只能查看本团队审计记录
+        SessionInfo session = SecurityUtils.requireSession();
+        if ("TEAM_ADMIN".equals(session.getRole()) && auditLog != null
+                && !session.getTeamCode().equals(auditLog.getTeamCode())) {
+            return Result.success(null);
+        }
+        return Result.success(auditLog);
     }
 }

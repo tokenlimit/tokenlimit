@@ -127,10 +127,16 @@ const allAdminGroups: { roles?: string[]; group: MenuGroup }[] = [
     group: {
       title: '资源管理',
       items: [
-        { index: '/teams', icon: UserFilled, title: 'Team 团队' },
         { index: '/api-keys', icon: Key, title: 'API Key 管理' },
         { index: '/users', icon: Avatar, title: 'User 用户' }
       ]
+    }
+  },
+  {
+    roles: [ROLES.ADMIN],
+    group: {
+      title: '组织管理',
+      items: [{ index: '/teams', icon: UserFilled, title: 'Team 团队' }]
     }
   },
   {
@@ -151,7 +157,7 @@ const allAdminGroups: { roles?: string[]; group: MenuGroup }[] = [
     }
   },
   {
-    roles: [ROLES.ADMIN],
+    roles: [ROLES.ADMIN, ROLES.TEAM_ADMIN],
     group: {
       title: '审计',
       items: [{ index: '/audits', icon: Document, title: '审计日志' }]

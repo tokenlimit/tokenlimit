@@ -25,6 +25,8 @@ public class ApiKey extends BaseEntity {
     private LocalDateTime expireAt;
     private LocalDateTime lastUsedAt;
     private String createdBy;
+    /** 允许的模型白名单（逗号分隔，NULL 表示全部，PRD 10.1 allowed_models） */
+    private String allowedModels;
 
     public String getTeamCode() {
         return teamCode;
@@ -104,5 +106,13 @@ public class ApiKey extends BaseEntity {
 
     public void setCreatedBy(String createdBy) {
         this.createdBy = createdBy;
+    }
+
+    public String getAllowedModels() {
+        return allowedModels;
+    }
+
+    public void setAllowedModels(String allowedModels) {
+        this.allowedModels = allowedModels;
     }
 }

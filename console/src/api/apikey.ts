@@ -12,6 +12,8 @@ export interface ApiKey {
   expireAt?: string
   lastUsedAt?: string
   createdBy?: string
+  /** 允许的模型白名单（逗号分隔，空表示全部，PRD 10.1） */
+  allowedModels?: string
   createdAt?: string
   updatedAt?: string
 }

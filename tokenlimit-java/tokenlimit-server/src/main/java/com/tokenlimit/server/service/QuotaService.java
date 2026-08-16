@@ -11,12 +11,16 @@ import com.tokenlimit.common.enums.TargetType;
 import com.tokenlimit.common.enums.UsageStatus;
 import com.tokenlimit.server.config.TokenLimitProperties;
 import com.tokenlimit.server.entity.ApiKey;
+import com.tokenlimit.server.entity.AuditLog;
 import com.tokenlimit.server.entity.QuotaRule;
+import com.tokenlimit.server.entity.Setting;
 import com.tokenlimit.server.entity.Team;
 import com.tokenlimit.server.entity.UsageLog;
 import com.tokenlimit.server.entity.User;
 import com.tokenlimit.server.repository.mapper.ApiKeyMapper;
+import com.tokenlimit.server.repository.mapper.AuditLogMapper;
 import com.tokenlimit.server.repository.mapper.QuotaRuleMapper;
+import com.tokenlimit.server.repository.mapper.SettingMapper;
 import com.tokenlimit.server.repository.mapper.TeamMapper;
 import com.tokenlimit.server.repository.mapper.UsageLogMapper;
 import com.tokenlimit.server.repository.mapper.UserMapper;
@@ -82,6 +86,8 @@ public class QuotaService {
     private final ApiKeyMetricsService apiKeyMetricsService;
     private final QuotaUsageAggregator quotaUsageAggregator;
     private final PriceCalculatorService priceCalculatorService;
+    private final AuditLogMapper auditLogMapper;
+    private final SettingMapper settingMapper;
     /** 配额拦截责任链（按 tokenlimit.quota-chain 配置顺序执行） */
     private final LinkedHashMap<String, QuotaInterceptor> chain;
 
@@ -92,6 +98,7 @@ public class QuotaService {
                         ApiKeyMetricsService apiKeyMetricsService,
                         QuotaUsageAggregator quotaUsageAggregator,
                         PriceCalculatorService priceCalculatorService,
+                        AuditLogMapper auditLogMapper, SettingMapper settingMapper,
                         List<QuotaInterceptor> interceptors) {
         this.quotaRuleMapper = quotaRuleMapper;
         this.usageLogMapper = usageLogMapper;
@@ -104,6 +111,8 @@ public class QuotaService {
         this.apiKeyMetricsService = apiKeyMetricsService;
         this.quotaUsageAggregator = quotaUsageAggregator;
         this.priceCalculatorService = priceCalculatorService;
+        this.auditLogMapper = auditLogMapper;
+        this.settingMapper = settingMapper;
         Map<String, QuotaInterceptor> byName = new LinkedHashMap<>();
         for (QuotaInterceptor interceptor : interceptors) {
             byName.put(interceptor.name(), interceptor);
@@ -144,6 +153,8 @@ public class QuotaService {
                              long estimatedTotalTokens) {
         ApiKey apiKey = resolveApiKey(accessKey, secret);
         if (estimatedTotalTokens > properties.getMaxEstimatedTokens()) {
+            writeQuotaBlockAudit(apiKey, "TOKEN_LIMIT_EXCEEDED",
+                    "预估 token 超过单次上限 " + properties.getMaxEstimatedTokens());
             return CheckResult.denied("TOKEN_LIMIT_EXCEEDED",
                     "预估 token 超过单次上限 " + properties.getMaxEstimatedTokens());
         }
@@ -155,12 +166,14 @@ public class QuotaService {
         Team team = teamMapper.selectOne(new LambdaQueryWrapper<Team>()
                 .eq(Team::getTeamCode, teamCode));
         if (team == null || !"ENABLED".equals(team.getStatus())) {
+            writeQuotaBlockAudit(apiKey, "TEAM_DISABLED", "所属团队已被禁用");
             return CheckResult.denied("TEAM_DISABLED", "所属团队已被禁用");
         }
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getTeamCode, teamCode)
                 .eq(User::getUserCode, userCode));
         if (user == null || !"ENABLED".equals(user.getStatus())) {
+            writeQuotaBlockAudit(apiKey, "USER_DISABLED", "所属用户已被禁用");
             return CheckResult.denied("USER_DISABLED", "所属用户已被禁用");
         }
 
@@ -178,9 +191,14 @@ public class QuotaService {
         for (QuotaInterceptor interceptor : chain.values()) {
             QuotaDenied denied = interceptor.check(ctx);
             if (denied != null) {
+                writeQuotaBlockAudit(apiKey, denied.reason(), denied.message());
                 return CheckResult.denied(denied.reason(), denied.message());
             }
         }
+
+        // 软阈值告警（PRD 7.8 缓冲阈值）：放行后检查各规则用量是否达到告警线，
+        // 首次达到（Redis SETNX 去重）写 SOFT_LIMIT_ALERT 审计
+        softAlertIfNeeded(teamRules, userRules, teamCode, userCode, apiKey.getKeyId(), now);
 
         // 统一预扣（预计算开关开启时）：对适用规则按预估量原子 INCRBY
         if (precompute) {
@@ -268,6 +286,15 @@ public class QuotaService {
                             properties.getAnomalyDeviationThreshold() * 100);
                 }
             }
+        }
+
+        // 异常检测联动（PRD 8.3）：标记异常时写 USAGE_ANOMALY 审计（网关场景，operator=gateway）
+        if (anomaly) {
+            writeAudit(teamCode, StringUtils.hasText(contextUser) ? contextUser : null, apiKeyId,
+                    "gateway", "USAGE_ANOMALY", "USER",
+                    StringUtils.hasText(contextUser) ? contextUser : teamCode,
+                    "{\"traceId\":\"" + traceId + "\",\"detail\":\""
+                            + (anomalyDetail == null ? "" : anomalyDetail) + "\"}", "SUCCESS");
         }
 
         // 写入 usage_log（先写 MySQL，余额变更发生在此刻）
@@ -536,7 +563,13 @@ public class QuotaService {
                 // 剩余额度 = balance - pre（预计算关闭时 pre 恒为 0）
                 minRemain = Math.min(minRemain, Math.max(balance - pre, 0));
             } catch (Exception e) {
-                log.warn("Redis 剩余额度读取失败, rule={}:{}", rule.getTargetType(), rule.getTargetCode(), e);
+                // 失败策略（PRD 11.5）：fail-open 降级放行（默认）；fail-close 一致性优先，日志升级为 error
+                if ("fail-close".equalsIgnoreCase(properties.getAnomalyFailStrategy())) {
+                    log.error("Redis 剩余额度读取失败（fail-close 策略）, rule={}:{}",
+                            rule.getTargetType(), rule.getTargetCode(), e);
+                } else {
+                    log.warn("Redis 剩余额度读取失败, rule={}:{}", rule.getTargetType(), rule.getTargetCode(), e);
+                }
                 return -1;
             }
         }
@@ -548,6 +581,114 @@ public class QuotaService {
             return -1;
         }
         return readMinRemain(parseRules(rulesInfo), now);
+    }
+
+    /**
+     * 写入审计日志（PRD 13.1）：审计失败不影响主流程，仅记录警告.
+     */
+    private void writeAudit(String teamCode, String userCode, String apiKeyId, String operator,
+                            String eventType, String targetType, String targetCode,
+                            String detail, String result) {
+        try {
+            AuditLog audit = new AuditLog();
+            audit.setTeamCode(teamCode);
+            audit.setUserCode(userCode);
+            audit.setApiKeyId(apiKeyId);
+            audit.setOperator(operator);
+            audit.setEventType(eventType);
+            audit.setTargetType(targetType);
+            audit.setTargetCode(targetCode);
+            audit.setDetail(detail);
+            audit.setResult(result);
+            auditLogMapper.insert(audit);
+        } catch (Exception e) {
+            log.warn("审计写入失败, eventType={}, target={}:{}", eventType, targetType, targetCode, e);
+        }
+    }
+
+    /**
+     * 配额拦截审计（PRD 13.1 QUOTA_BLOCK）：网关拒绝请求时记录，operator=gateway，result=FAILED.
+     * <p>targetType 按拒绝原因判定：含 USER 记用户维度，否则记团队维度。</p>
+     */
+    private void writeQuotaBlockAudit(ApiKey apiKey, String reason, String message) {
+        String targetType = reason != null && reason.contains("USER") ? "USER" : "TEAM";
+        String targetCode = "USER".equals(targetType) ? apiKey.getUserCode() : apiKey.getTeamCode();
+        writeAudit(apiKey.getTeamCode(), apiKey.getUserCode(), apiKey.getKeyId(), "gateway",
+                "QUOTA_BLOCK", targetType, targetCode,
+                "{\"reason\":\"" + reason + "\",\"message\":\""
+                        + (message == null ? "" : message.replace("\"", "\\\"")) + "\"}",
+                "FAILED");
+    }
+
+    /**
+     * 软阈值告警（PRD 7.8 缓冲阈值）：配额用量达到 limit × alert_threshold（默认 80%）时
+     * 写 SOFT_LIMIT_ALERT 审计。check 放行后调用；同一周期同一规则仅告警一次（Redis SETNX 去重）。
+     */
+    private void softAlertIfNeeded(List<QuotaRule> teamRules, List<QuotaRule> userRules,
+                                   String teamCode, String userCode, String apiKeyId,
+                                   LocalDateTime now) {
+        double threshold = readAlertThreshold();
+        if (threshold <= 0) {
+            return;
+        }
+        for (QuotaRule rule : mergeRules(userRules, teamRules)) {
+            try {
+                Period period = Period.valueOf(rule.getPeriod());
+                long limit = rule.getLimitValue().longValue();
+                if (limit <= 0) {
+                    continue;
+                }
+                long balance = quotaRedisService.readBalance(rule.getTargetType(), rule.getTargetCode(),
+                        rule.getLimitType(), period, now);
+                if (balance < 0) {
+                    balance = limit - quotaUsageAggregator.aggregateUsed(
+                            rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now);
+                }
+                long used = Math.max(limit - balance, 0);
+                long softLimit = (long) Math.floor(limit * threshold);
+                if (used >= softLimit
+                        && quotaRedisService.markAlertIfAbsent(rule.getTargetType(), rule.getTargetCode(),
+                        rule.getLimitType(), period, now)) {
+                    String targetCode = "USER".equalsIgnoreCase(rule.getTargetType()) ? userCode : teamCode;
+                    writeAudit(teamCode, userCode, apiKeyId, "gateway", "SOFT_LIMIT_ALERT",
+                            rule.getTargetType(), targetCode,
+                            String.format("{\"limitType\":\"%s\",\"period\":\"%s\",\"limit\":%d,\"used\":%d,\"threshold\":%.0f%%}",
+                                    rule.getLimitType(), rule.getPeriod(), limit, used, threshold * 100),
+                            "SUCCESS");
+                    log.warn("配额软阈值告警, rule={}:{}:{}, limit={}, used={}, threshold={}%",
+                            rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(),
+                            limit, used, (long) (threshold * 100));
+                }
+            } catch (Exception e) {
+                log.warn("软阈值告警检查失败, rule={}:{}", rule.getTargetType(), rule.getTargetCode(), e);
+            }
+        }
+    }
+
+    /** 告警阈值缓存：60 秒内不重复查库（tl_setting.alert_threshold，百分比值，默认 80%） */
+    private static final long ALERT_THRESHOLD_CACHE_MILLIS = 60_000L;
+    private volatile double alertThresholdCache = 0.8;
+    private volatile long alertThresholdLoadedAt = 0;
+
+    private double readAlertThreshold() {
+        long now = System.currentTimeMillis();
+        if (now - alertThresholdLoadedAt < ALERT_THRESHOLD_CACHE_MILLIS) {
+            return alertThresholdCache;
+        }
+        try {
+            Setting setting = settingMapper.selectOne(new LambdaQueryWrapper<Setting>()
+                    .eq(Setting::getSettingKey, "alert_threshold"));
+            if (setting != null && StringUtils.hasText(setting.getSettingValue())) {
+                double value = Double.parseDouble(setting.getSettingValue()) / 100;
+                if (value > 0 && value <= 1) {
+                    alertThresholdCache = value;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("读取 alert_threshold 失败, 使用缓存值 {}", alertThresholdCache, e);
+        }
+        alertThresholdLoadedAt = now;
+        return alertThresholdCache;
     }
 
     private String genTraceId() {
