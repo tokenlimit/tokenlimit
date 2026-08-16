@@ -122,14 +122,14 @@ API Key 由 **accessKey + secret** 两段组成：
 
 | 字段 | 格式 | 说明 |
 |---|---|---|
-| accessKey | `tl_ak_xxxxxxxx` | 公开标识，全局唯一，用于定位 Key（控制台列表可见） |
+| accessKey | `tl_ak_` + 32 位 base62 | 公开标识，全局唯一（≈190 bit 熵，对齐 GitHub / OpenAI 大厂策略），用于定位 Key（控制台列表可见） |
 | secret | `sk_tl_xxxxxxxx...`（48 位随机串） | 机密部分，明文仅创建 / 重置时返回一次，库中只存 HMAC-SHA256 哈希（服务端 pepper 参与，防离线碰撞） |
 
 客户端调用 TokenLimit Proxy 时，将两段用冒号拼接为**单个字符串**填入（兼容 Cursor 等只支持单个 API Key 的客户端）：
 
 ```text
 Authorization: Bearer <access_key>:<secret>
-例：Bearer tl_ak_3f8a9c21:sk_tl_4f2b8a6c...
+例：Bearer tl_ak_X7f2K9qLm4N8vR3sT6wY1aB5cD7eG0hJ:sk_tl_4f2b8a6c...
 ```
 
 网关解析后按 accessKey 查库定位、校验 secret 哈希，双向校验通过才放行。
@@ -139,7 +139,7 @@ Authorization: Bearer <access_key>:<secret>
 ```text
 Model Provider: OpenAI
 Base URL:       http://<tokenlimit-host>:8080/v1
-API Key:        tl_ak_xxxxxxxx:sk_tl_xxxxxxxx...   # access_key 与 secret 用冒号拼接
+API Key:        tl_ak_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:sk_tl_XXXXXXXX...   # access_key 与 secret 用冒号拼接
 ```
 
 ### 3.5 Provider Credential

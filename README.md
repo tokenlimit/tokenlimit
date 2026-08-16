@@ -253,28 +253,28 @@ docker compose -f deploy/docker-compose.yml up -d
 
 客户端只需把 Base URL 指向 TokenLimit 网关、使用 TokenLimit API Key，即可完成接入。
 
-API Key 为**两段式凭证**：`accessKey`（公开标识 `tl_ak_xxx`）+ `secret`（机密 `sk_tl_xxx`，仅创建/重置时显示一次）。为兼容只支持单个 API Key 的客户端（如 Cursor），将两段用**冒号拼接**为一个字符串填入；网关按第一个冒号拆分后双向校验。
+API Key 为**两段式凭证**：`accessKey`（公开标识 `tl_ak_` + 32 位 base62）+ `secret`（机密 `sk_tl_xxx`，仅创建/重置时显示一次）。为兼容只支持单个 API Key 的客户端（如 Cursor），将两段用**冒号拼接**为一个字符串填入；网关按第一个冒号拆分后双向校验。
 
 ### 1. Cursor
 
 ```text
 Model Provider: OpenAI
 Base URL:       http://<tokenlimit-host>:8080/v1
-API Key:        tl_ak_xxxxxxxx:sk_tl_xxxxxxxx...   # access_key 与 secret 用冒号拼接
+API Key:        tl_ak_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:sk_tl_XXXXXXXX...   # access_key 与 secret 用冒号拼接
 ```
 
 ### 2. DeepSeek Harness
 
 ```text
 Base URL: http://<tokenlimit-host>:8080/v1
-API Key:  tl_ak_xxxxxxxx:sk_tl_xxxxxxxx...   # 同上，两段式拼接
+API Key:  tl_ak_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:sk_tl_XXXXXXXX...   # 同上，两段式拼接
 ```
 
 ### 3. cURL
 
 ```bash
 curl http://<tokenlimit-host>:8080/v1/chat/completions \
-  -H "Authorization: Bearer tl_ak_xxxxxxxx:sk_tl_xxxxxxxx..." \
+  -H "Authorization: Bearer tl_ak_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX:sk_tl_XXXXXXXX..." \
   -H "Content-Type: application/json" \
   -d '{
     "model": "deepseek-chat",
@@ -288,7 +288,7 @@ curl http://<tokenlimit-host>:8080/v1/chat/completions \
 ```java
 TokenLimitClient client = new TokenLimitClient(
         TokenLimitConfig.builder("http://127.0.0.1:8080")
-                .apiKey("tl_ak_xxxxxxxx")       // accessKey
+                .apiKey("tl_ak_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")       // accessKey
                 .secret("sk_tl_xxxxxxxx...")    // secret，未配置则仅发送 Bearer <access_key>
                 .build());
 

@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 /**
  * API Key 实体（强绑定 team/user）.
  * status: ENABLED / DISABLED / EXPIRED / REVOKED
- * access_key 全局唯一（客户端调用凭证，格式 tl_ak_xxx）
+ * access_key 全局唯一（客户端调用凭证，格式 tl_ak_ + 32 位 base62）
  * secret 明文仅创建/重置时返回一次（secretHash 存储）
  */
 @TableName("tl_api_key")

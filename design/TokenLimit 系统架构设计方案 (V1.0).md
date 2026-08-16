@@ -114,13 +114,13 @@ tokenlimit/
 
 ### 4.1 API Key 凭证格式与鉴权流程
 
-API Key 为**两段式凭证**：`accessKey`（格式 `tl_ak_xxxxxxxx`，公开标识，全局唯一）+ `secret`（格式 `sk_tl_xxxxxxxx...`，机密，明文仅创建/重置时返回一次，库中仅存 HMAC-SHA256 哈希，服务端 pepper 密钥参与防离线碰撞）。
+API Key 为**两段式凭证**：`accessKey`（`tl_ak_` + 32 位 base62 随机段，≈190 bit 熵，公开标识，全局唯一，对齐 GitHub / OpenAI 大厂凭证策略）+ `secret`（格式 `sk_tl_xxxxxxxx...`，机密，明文仅创建/重置时返回一次，库中仅存 HMAC-SHA256 哈希，服务端 pepper 密钥参与防离线碰撞）。
 
 为兼容 Cursor 等只支持单个 API Key 的客户端，客户端将两段用冒号拼接为单个字符串，网关按第一个冒号拆分后双向校验：
 
 ```text
 客户端：Authorization: Bearer <access_key>:<secret>
-       例：Bearer tl_ak_3f8a9c21:sk_tl_4f2b8a6c...
+       例：Bearer tl_ak_X7f2K9qLm4N8vR3sT6wY1aB5cD7eG0hJ:sk_tl_4f2b8a6c...
 
 网关：1. 按 accessKey 查库定位 API Key（不存在 → 401 INVALID_API_KEY）
      2. 校验状态：ENABLED / 过期自动置 EXPIRED / 禁用

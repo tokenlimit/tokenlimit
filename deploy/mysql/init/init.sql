@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS `tl_api_key` (
   `user_code`     VARCHAR(64)  NOT NULL COMMENT '绑定用户',
   `key_id`        VARCHAR(64)  NOT NULL COMMENT 'API Key 标识（内部唯一，如 key-xxxx）',
   `key_name`      VARCHAR(128) NOT NULL COMMENT 'Key 名称（便于识别用途）',
-  `access_key`    VARCHAR(64)  NOT NULL COMMENT 'Access Key（客户端调用唯一凭证，格式 tl_ak_xxx）',
+  `access_key`    VARCHAR(64)  NOT NULL COMMENT 'Access Key（客户端调用唯一凭证，格式 tl_ak_ + 32 位 base62）',
   `secret_hash`   VARCHAR(128) DEFAULT NULL COMMENT 'Secret 哈希（明文仅创建/重置时返回一次）',
   `allowed_models` VARCHAR(512) DEFAULT NULL COMMENT '允许的模型（逗号分隔，NULL 表示全部）',
   `status`        VARCHAR(32)  NOT NULL DEFAULT 'ENABLED' COMMENT '状态：ENABLED/DISABLED/EXPIRED/REVOKED',

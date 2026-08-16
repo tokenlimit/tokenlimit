@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -35,7 +36,7 @@ import java.util.UUID;
 /**
  * 管理端：API Key 管理（PRD V5.0）.
  * <p>ADMIN/TEAM_ADMIN 管理全部；USER 仅管理自己的 API Key（自动按 userCode 过滤）。</p>
- * <p>API Key 强绑定 team/user；access_key 全局唯一（格式 tl_ak_xxx）；
+ * <p>API Key 强绑定 team/user；access_key 全局唯一（格式 tl_ak_ + 32 位 base62）；
  * secret 明文仅创建/重置时返回一次，库中仅存哈希。</p>
  */
 @RestController
@@ -46,6 +47,15 @@ public class ApiKeyAdminController {
     private final ApiKeyMapper apiKeyMapper;
     private final UserMapper userMapper;
     private final TokenLimitProperties properties;
+
+    /** accessKey 随机段长度：32 位 base62 ≈ 190 bit 熵（对齐 GitHub PAT 36 位 / OpenAI 40+ 位的大厂策略） */
+    private static final int ACCESS_KEY_RANDOM_LEN = 32;
+
+    /** base62 字符集（大小写字母 + 数字，无冒号等拼接分隔符冲突） */
+    private static final char[] BASE62_CHARS =
+            ("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz").toCharArray();
+
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     public ApiKeyAdminController(ApiKeyMapper apiKeyMapper, UserMapper userMapper,
                                  TokenLimitProperties properties) {
@@ -206,8 +216,24 @@ public class ApiKeyAdminController {
         return "key-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
     }
 
+    /**
+     * 生成 accessKey：{@code tl_ak_} + 32 位 base62 随机段（≈190 bit 熵）.
+     * <p>对齐 GitHub / OpenAI / 阿里云等大厂凭证策略：语义化前缀 + CSPRNG 高熵随机段；
+     * 唯一性由随机熵 + 创建时查库重试 + 数据库唯一索引三重保障。</p>
+     */
     private String genAccessKey() {
-        return "tl_ak_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        return "tl_ak_" + randomBase62(ACCESS_KEY_RANDOM_LEN);
+    }
+
+    /**
+     * 生成指定长度的 base62 随机串（SecureRandom，nextInt 无模偏差）.
+     */
+    private static String randomBase62(int length) {
+        StringBuilder sb = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            sb.append(BASE62_CHARS[RANDOM.nextInt(BASE62_CHARS.length)]);
+        }
+        return sb.toString();
     }
 
     private String genSecret() {
