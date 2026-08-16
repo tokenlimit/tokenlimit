@@ -22,23 +22,12 @@
             <el-option v-for="m in models" :key="m" :label="m" :value="m" />
           </el-select>
         </el-form-item>
-        <el-form-item label="预算告警阈值（%）">
-          <el-input-number v-model="alertThreshold" :min="0" :max="100" />
-        </el-form-item>
         <el-form-item label="审计日志保留时间">
           <el-select v-model="form.audit_retention">
             <el-option label="30 天" value="30" />
             <el-option label="90 天" value="90" />
             <el-option label="180 天" value="180" />
             <el-option label="365 天" value="365" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="告警通知渠道">
-          <el-select v-model="form.notify_channel">
-            <el-option label="钉钉机器人" value="dingtalk" />
-            <el-option label="飞书机器人" value="lark" />
-            <el-option label="企业微信" value="wecom" />
-            <el-option label="邮件" value="email" />
           </el-select>
         </el-form-item>
 
@@ -77,9 +66,7 @@ const form = reactive<SettingsMap>({
   gateway_public_url: '',
   safe_factor: '1.1',
   default_model: 'gpt-4o-mini',
-  alert_threshold: '80',
   audit_retention: '90',
-  notify_channel: 'dingtalk',
   base_currency: 'CNY',
   usd_to_cny_rate: '7.2'
 })
@@ -88,13 +75,6 @@ const safeFactor = computed({
   get: () => Number(form.safe_factor || 1.1),
   set: (v: number | undefined) => {
     form.safe_factor = String(v ?? 1.1)
-  }
-})
-
-const alertThreshold = computed({
-  get: () => Number(form.alert_threshold || 0),
-  set: (v: number | undefined) => {
-    form.alert_threshold = String(v ?? 0)
   }
 })
 

@@ -13,14 +13,12 @@ import com.tokenlimit.server.config.TokenLimitProperties;
 import com.tokenlimit.server.entity.ApiKey;
 import com.tokenlimit.server.entity.AuditLog;
 import com.tokenlimit.server.entity.QuotaRule;
-import com.tokenlimit.server.entity.Setting;
 import com.tokenlimit.server.entity.Team;
 import com.tokenlimit.server.entity.UsageLog;
 import com.tokenlimit.server.entity.User;
 import com.tokenlimit.server.repository.mapper.ApiKeyMapper;
 import com.tokenlimit.server.repository.mapper.AuditLogMapper;
 import com.tokenlimit.server.repository.mapper.QuotaRuleMapper;
-import com.tokenlimit.server.repository.mapper.SettingMapper;
 import com.tokenlimit.server.repository.mapper.TeamMapper;
 import com.tokenlimit.server.repository.mapper.UsageLogMapper;
 import com.tokenlimit.server.repository.mapper.UserMapper;
@@ -87,7 +85,7 @@ public class QuotaService {
     private final QuotaUsageAggregator quotaUsageAggregator;
     private final PriceCalculatorService priceCalculatorService;
     private final AuditLogMapper auditLogMapper;
-    private final SettingMapper settingMapper;
+    private final EstimationTrackerService estimationTrackerService;
     /** 配额拦截责任链（按 tokenlimit.quota-chain 配置顺序执行） */
     private final LinkedHashMap<String, QuotaInterceptor> chain;
 
@@ -98,7 +96,8 @@ public class QuotaService {
                         ApiKeyMetricsService apiKeyMetricsService,
                         QuotaUsageAggregator quotaUsageAggregator,
                         PriceCalculatorService priceCalculatorService,
-                        AuditLogMapper auditLogMapper, SettingMapper settingMapper,
+                        AuditLogMapper auditLogMapper,
+                        EstimationTrackerService estimationTrackerService,
                         List<QuotaInterceptor> interceptors) {
         this.quotaRuleMapper = quotaRuleMapper;
         this.usageLogMapper = usageLogMapper;
@@ -112,7 +111,7 @@ public class QuotaService {
         this.quotaUsageAggregator = quotaUsageAggregator;
         this.priceCalculatorService = priceCalculatorService;
         this.auditLogMapper = auditLogMapper;
-        this.settingMapper = settingMapper;
+        this.estimationTrackerService = estimationTrackerService;
         Map<String, QuotaInterceptor> byName = new LinkedHashMap<>();
         for (QuotaInterceptor interceptor : interceptors) {
             byName.put(interceptor.name(), interceptor);
@@ -196,10 +195,6 @@ public class QuotaService {
             }
         }
 
-        // 软阈值告警（PRD 7.8 缓冲阈值）：放行后检查各规则用量是否达到告警线，
-        // 首次达到（Redis SETNX 去重）写 SOFT_LIMIT_ALERT 审计
-        softAlertIfNeeded(teamRules, userRules, teamCode, userCode, apiKey.getKeyId(), now);
-
         // 统一预扣（预计算开关开启时）：对适用规则按预估量原子 INCRBY
         if (precompute) {
             preDeductApplied(ctx);
@@ -268,24 +263,20 @@ public class QuotaService {
         boolean providerUsage = !interrupted && totalTokens > 0;
         String usageSource = providerUsage ? "PROVIDER" : "ESTIMATED";
 
-        // 配额统计值：PROVIDER 用真实值，ESTIMATED 用预估值
+        // 配额统计值：PROVIDER 用真实值；ESTIMATED 用模型平均偏差调整后的估算值
+        // （PRD 8.3 动态化：est × avgRatio，无统计时回退原预估值）
         long statTokens = providerUsage ? totalTokens
-                : Math.max(estTotal, estimatedTotalTokens);
+                : estimationTrackerService.adjust(model, Math.max(estTotal, estimatedTotalTokens));
 
-        // 异常检测：仅对 PROVIDER 且存在预估值时，偏差超过阈值标记 anomaly
+        // 异常检测（PRD 8.3 动态化）：基于历史样本均值判定（本次样本先判定后记录，避免自举）
         boolean anomaly = false;
-        String anomalyDetail = null;
-        if (providerUsage && estTotal > 0) {
-            long max = Math.max(totalTokens, estTotal);
-            if (max > 0) {
-                double deviation = Math.abs((double) totalTokens - estTotal) / max;
-                if (deviation > properties.getAnomalyDeviationThreshold()) {
-                    anomaly = true;
-                    anomalyDetail = String.format("预估 %d / 实际 %d，偏差 %.1f%% 超过阈值 %.0f%%",
-                            estTotal, totalTokens, deviation * 100,
-                            properties.getAnomalyDeviationThreshold() * 100);
-                }
-            }
+        String anomalyDetail = providerUsage
+                ? estimationTrackerService.anomalyDetail(model, estTotal, totalTokens)
+                : null;
+        anomaly = anomalyDetail != null;
+        // 记录本次成功样本（真实/预估比值，按模型 EMA 更新稳态均值）
+        if (providerUsage) {
+            estimationTrackerService.record(model, estTotal, totalTokens);
         }
 
         // 异常检测联动（PRD 8.3）：标记异常时写 USAGE_ANOMALY 审计（网关场景，operator=gateway）
@@ -313,8 +304,11 @@ public class QuotaService {
         usageLog.setTotalTokens(totalTokens);
         // 计费快照（V5.3）：动态读取价格表计算费用，单价/汇率固化到 usage_log，历史费用不可变
         // 缓存计费（V5.4）：PROVIDER 时按厂商返回的缓存 token 计算，ESTIMATED 时缓存按 0
-        long billPrompt = providerUsage ? promptTokens : Math.max(estPrompt, estimatedPromptTokens);
-        long billCompletion = providerUsage ? completionTokens : Math.max(estCompletion, estimatedCompletionTokens);
+        // ESTIMATED 计费同样按模型平均偏差调整（配额与计费口径一致）
+        long billPrompt = providerUsage ? promptTokens
+                : estimationTrackerService.adjust(model, Math.max(estPrompt, estimatedPromptTokens));
+        long billCompletion = providerUsage ? completionTokens
+                : estimationTrackerService.adjust(model, Math.max(estCompletion, estimatedCompletionTokens));
         PriceCalculatorService.CostResult billing = priceCalculatorService.calculateCost(
                 StringUtils.hasText(provider) ? provider : null, model, billPrompt, billCompletion,
                 providerUsage ? cachedTokens : 0, providerUsage ? cacheWriteTokens : 0);
@@ -563,13 +557,7 @@ public class QuotaService {
                 // 剩余额度 = balance - pre（预计算关闭时 pre 恒为 0）
                 minRemain = Math.min(minRemain, Math.max(balance - pre, 0));
             } catch (Exception e) {
-                // 失败策略（PRD 11.5）：fail-open 降级放行（默认）；fail-close 一致性优先，日志升级为 error
-                if ("fail-close".equalsIgnoreCase(properties.getAnomalyFailStrategy())) {
-                    log.error("Redis 剩余额度读取失败（fail-close 策略）, rule={}:{}",
-                            rule.getTargetType(), rule.getTargetCode(), e);
-                } else {
-                    log.warn("Redis 剩余额度读取失败, rule={}:{}", rule.getTargetType(), rule.getTargetCode(), e);
-                }
+                log.warn("Redis 剩余额度读取失败, rule={}:{}", rule.getTargetType(), rule.getTargetCode(), e);
                 return -1;
             }
         }
@@ -618,77 +606,6 @@ public class QuotaService {
                 "{\"reason\":\"" + reason + "\",\"message\":\""
                         + (message == null ? "" : message.replace("\"", "\\\"")) + "\"}",
                 "FAILED");
-    }
-
-    /**
-     * 软阈值告警（PRD 7.8 缓冲阈值）：配额用量达到 limit × alert_threshold（默认 80%）时
-     * 写 SOFT_LIMIT_ALERT 审计。check 放行后调用；同一周期同一规则仅告警一次（Redis SETNX 去重）。
-     */
-    private void softAlertIfNeeded(List<QuotaRule> teamRules, List<QuotaRule> userRules,
-                                   String teamCode, String userCode, String apiKeyId,
-                                   LocalDateTime now) {
-        double threshold = readAlertThreshold();
-        if (threshold <= 0) {
-            return;
-        }
-        for (QuotaRule rule : mergeRules(userRules, teamRules)) {
-            try {
-                Period period = Period.valueOf(rule.getPeriod());
-                long limit = rule.getLimitValue().longValue();
-                if (limit <= 0) {
-                    continue;
-                }
-                long balance = quotaRedisService.readBalance(rule.getTargetType(), rule.getTargetCode(),
-                        rule.getLimitType(), period, now);
-                if (balance < 0) {
-                    balance = limit - quotaUsageAggregator.aggregateUsed(
-                            rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(), period, now);
-                }
-                long used = Math.max(limit - balance, 0);
-                long softLimit = (long) Math.floor(limit * threshold);
-                if (used >= softLimit
-                        && quotaRedisService.markAlertIfAbsent(rule.getTargetType(), rule.getTargetCode(),
-                        rule.getLimitType(), period, now)) {
-                    String targetCode = "USER".equalsIgnoreCase(rule.getTargetType()) ? userCode : teamCode;
-                    writeAudit(teamCode, userCode, apiKeyId, "gateway", "SOFT_LIMIT_ALERT",
-                            rule.getTargetType(), targetCode,
-                            String.format("{\"limitType\":\"%s\",\"period\":\"%s\",\"limit\":%d,\"used\":%d,\"threshold\":%.0f%%}",
-                                    rule.getLimitType(), rule.getPeriod(), limit, used, threshold * 100),
-                            "SUCCESS");
-                    log.warn("配额软阈值告警, rule={}:{}:{}, limit={}, used={}, threshold={}%",
-                            rule.getTargetType(), rule.getTargetCode(), rule.getLimitType(),
-                            limit, used, (long) (threshold * 100));
-                }
-            } catch (Exception e) {
-                log.warn("软阈值告警检查失败, rule={}:{}", rule.getTargetType(), rule.getTargetCode(), e);
-            }
-        }
-    }
-
-    /** 告警阈值缓存：60 秒内不重复查库（tl_setting.alert_threshold，百分比值，默认 80%） */
-    private static final long ALERT_THRESHOLD_CACHE_MILLIS = 60_000L;
-    private volatile double alertThresholdCache = 0.8;
-    private volatile long alertThresholdLoadedAt = 0;
-
-    private double readAlertThreshold() {
-        long now = System.currentTimeMillis();
-        if (now - alertThresholdLoadedAt < ALERT_THRESHOLD_CACHE_MILLIS) {
-            return alertThresholdCache;
-        }
-        try {
-            Setting setting = settingMapper.selectOne(new LambdaQueryWrapper<Setting>()
-                    .eq(Setting::getSettingKey, "alert_threshold"));
-            if (setting != null && StringUtils.hasText(setting.getSettingValue())) {
-                double value = Double.parseDouble(setting.getSettingValue()) / 100;
-                if (value > 0 && value <= 1) {
-                    alertThresholdCache = value;
-                }
-            }
-        } catch (Exception e) {
-            log.warn("读取 alert_threshold 失败, 使用缓存值 {}", alertThresholdCache, e);
-        }
-        alertThresholdLoadedAt = now;
-        return alertThresholdCache;
     }
 
     private String genTraceId() {

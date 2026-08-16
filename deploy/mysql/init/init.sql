@@ -221,6 +221,7 @@ CREATE TABLE IF NOT EXISTS `tl_team_model_policy` (
 --    prompt_cache_hit_tokens / Anthropic cache_read_input_tokens）按缓存读取
 --    单价计费，cache_write_tokens（Anthropic cache_creation_input_tokens）按
 --    缓存写入单价计费；未配置缓存单价时按正常输入价兜底；单价同样固化为快照
+--    idx_model_source_status: 预估偏差自学习初始化查询（model + PROVIDER + SUCCESS + id 倒序 limit 100）
 -- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `tl_usage_log` (
   `id`                        BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -259,6 +260,7 @@ CREATE TABLE IF NOT EXISTS `tl_usage_log` (
   KEY `idx_api_key_created` (`api_key_id`, `created_at`),
   KEY `idx_team_created` (`team_code`, `created_at`),
   KEY `idx_model_created` (`model`, `created_at`),
+  KEY `idx_model_source_status` (`model`, `usage_source`, `status`, `id`),
   KEY `idx_user` (`team_code`, `user_code`),
   KEY `idx_anomaly` (`anomaly_detected`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Token 使用日志表';
@@ -309,11 +311,9 @@ INSERT INTO `tl_setting` (`setting_key`, `setting_value`, `description`) VALUES
   ('system_name',     'TokenLimit Console',      '系统名称'),
   ('gateway_url',     'http://localhost:8080',   '网关公网地址（客户端 Base URL）'),
   ('default_model',   'gpt-4o-mini',             '默认模型'),
-  ('alert_threshold', '80',                      '预算告警阈值（%）'),
   ('anomaly_deviation_threshold', '0.5',         '异常计费检测偏差阈值（预估与真实值偏差比例）'),
   ('check_context_ttl_seconds', '3600',          'check/report 上下文缓存时间（秒）'),
   ('audit_retention', '90',                      '审计日志保留时间（天）'),
-  ('notify_channel',  'dingtalk',                '告警通知渠道'),
   ('login_fail_limit','5',                       '登录失败锁定阈值（次）'),
   ('login_fail_lock_minutes','30',               '登录失败锁定时长（分钟）'),
   ('base_currency',   'CNY',                     '企业本位币（财务报表与 cost 统一换算到该币种）'),

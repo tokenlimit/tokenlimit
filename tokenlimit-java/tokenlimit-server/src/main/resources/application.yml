@@ -50,6 +50,11 @@ tokenlimit:
   check-context-ttl-seconds: 3600
   # 单次调用预估 token 上限，超出则拒绝（防止异常大额预扣）
   max-estimated-tokens: 1000000
+  # 预估偏差自学习（PRD 8.3 动态化）：按模型统计 真实值/预估值 的 EMA 均值，无返回值时用 est×均值估算真实消耗
+  # 异常检测：样本≥estimation-min-samples 时 ratio 超过模型均值 anomaly-ratio-factor 倍判异常；不足时用 anomaly-deviation-threshold（50%）兑底
+  anomaly-ratio-factor: 2.0
+  estimation-min-samples: 20
+  anomaly-deviation-threshold: 0.5
   # 登录连续失败达到该次数后锁定
   login-max-fails: 5
   # 登录锁定时间（秒）

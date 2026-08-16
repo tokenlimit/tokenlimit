@@ -19,8 +19,12 @@ public class TokenLimitProperties {
     private long checkContextTtlSeconds = 3600;
     /** 单次预估 token 上限 */
     private long maxEstimatedTokens = 1000000;
-    /** 预估值与真实值偏差告警阈值（默认 50%） */
+    /** 预估值与真实值偏差告警阈值（默认 50%，样本不足时的静态兑底阈值） */
     private double anomalyDeviationThreshold = 0.5;
+    /** 预估偏差动态异常倍数：样本充足时 ratio(真实/预估) 超过模型均值该倍数判异常（PRD 8.3 动态化） */
+    private double anomalyRatioFactor = 2.0;
+    /** 偏差统计最小样本数：不足时用 anomalyDeviationThreshold 静态阈值兑底 */
+    private long estimationMinSamples = 20;
 
     /** 管理端登录账号 */
     private Admin admin = new Admin();
@@ -35,9 +39,6 @@ public class TokenLimitProperties {
     private String hashPepper = "tokenlimit-dev-only-hash-pepper-change-me-in-production";
     /** Redis 故障降级（可用性优先）：true 时 Redis 异常按默认值放行，false 时抛出 */
     private boolean redisFallbackEnabled = true;
-    /** 异常失败策略（PRD 11.5）：fail-open 放行（默认）/ fail-close 拒绝；
-     *  与 redisFallbackEnabled 同源语义（fail-open=降级放行，fail-close=一致性优先），显式暴露供配置 */
-    private String anomalyFailStrategy = "fail-open";
     /** 预计算拦截开关：true 时调用前真实余额 - 预扣值 &gt; 0 才放行，结束后回滚预扣；false 时仅判断余额，并发下可能超支 1 次调用 */
     private boolean quotaPrecomputeEnabled = true;
     /** 配额拦截责任链（按顺序执行，任一拦截即拒绝）：team-balance / user-balance / usage-period */
@@ -77,6 +78,22 @@ public class TokenLimitProperties {
 
     public void setAnomalyDeviationThreshold(double anomalyDeviationThreshold) {
         this.anomalyDeviationThreshold = anomalyDeviationThreshold;
+    }
+
+    public double getAnomalyRatioFactor() {
+        return anomalyRatioFactor;
+    }
+
+    public void setAnomalyRatioFactor(double anomalyRatioFactor) {
+        this.anomalyRatioFactor = anomalyRatioFactor;
+    }
+
+    public long getEstimationMinSamples() {
+        return estimationMinSamples;
+    }
+
+    public void setEstimationMinSamples(long estimationMinSamples) {
+        this.estimationMinSamples = estimationMinSamples;
     }
 
     public long getMaxEstimatedTokens() {
@@ -125,14 +142,6 @@ public class TokenLimitProperties {
 
     public void setRedisFallbackEnabled(boolean redisFallbackEnabled) {
         this.redisFallbackEnabled = redisFallbackEnabled;
-    }
-
-    public String getAnomalyFailStrategy() {
-        return anomalyFailStrategy;
-    }
-
-    public void setAnomalyFailStrategy(String anomalyFailStrategy) {
-        this.anomalyFailStrategy = anomalyFailStrategy;
     }
 
     public boolean isQuotaPrecomputeEnabled() {

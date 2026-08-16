@@ -170,28 +170,6 @@ public class QuotaRedisService {
         }
     }
 
-    /**
-     * 软阈值告警去重：同一规则同一周期只告警一次（SETNX + 周期 TTL）.
-     * <p>PRD 7.8：used &gt;= soft_limit 时触发告警；高频调用下避免重复刷屏，周期滚动后自动允许再次告警。</p>
-     *
-     * @return true 表示本次为首次触发（应执行告警写入），false 表示本周期已告警过
-     */
-    public boolean markAlertIfAbsent(String targetType, String targetCode, String limitType,
-                                     Period period, LocalDateTime now) {
-        String key = properties.getRedisPrefix() + ":alert:" + targetType.toLowerCase() + ":"
-                + targetCode + ":" + limitType.toUpperCase() + ":" + period.name() + ":"
-                + QuotaKeyUtils.periodBucket(period, now);
-        try {
-            Boolean set = redisTemplate.opsForValue().setIfAbsent(key, "1",
-                    Duration.ofSeconds(QuotaKeyUtils.periodTtlSeconds(period, now)));
-            return Boolean.TRUE.equals(set);
-        } catch (Exception e) {
-            log.warn("软阈值告警去重失败, rule={}:{}:{}:{}, 本次按首次处理: {}",
-                    targetType, targetCode, limitType, period, e.getMessage());
-            return true; // Redis 故障时允许重复告警，避免漏报
-        }
-    }
-
     // ==================== check 上下文（traceId 关联 check/report） ====================
 
     /**
