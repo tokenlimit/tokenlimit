@@ -23,7 +23,7 @@ public class QuotaRule extends BaseEntity {
     /** 额度类型：TOKEN（token 数）/ CALL（调用次数） */
     private String limitType;
 
-    /** 周期：DAY / MONTH / TOTAL */
+    /** 周期：MINUTE / HOUR / DAY / WEEK / MONTH / YEAR / TOTAL */
     private String period;
 
     /** 限额数值 */

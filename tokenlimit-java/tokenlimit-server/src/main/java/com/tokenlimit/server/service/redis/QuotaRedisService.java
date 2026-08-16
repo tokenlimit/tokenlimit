@@ -50,16 +50,31 @@ public class QuotaRedisService {
 
     /**
      * 惰性初始化余额：key 不存在时写入（limit - MySQL 聚合用量），存在则忽略.
-     * <p>SETNX 原子保证并发下仅一次写入；TTL 为周期剩余时间，周期滚动后自动从 MySQL 重建。</p>
+     * <p>缓存维护（无缓存就去数据库加）：</p>
+     * <ul>
+     *   <li>key 缺失（首次访问/周期滚动/缓存丢失）→ SETNX 写入初始值；</li>
+     *   <li>key 为负值（并发超支残留/异常扣减）→ 以 MySQL 聚合值覆盖重建，恢复正确余额；</li>
+     *   <li>key 为正常非负值 → 保持不动（缓存优先，避免覆盖并发的实时扣减）。</li>
+     * </ul>
+     * <p>TTL 为周期剩余时间，周期滚动后 key 自动过期，下次访问重新从 MySQL 聚合。</p>
      */
     public void initBalanceIfAbsent(String targetType, String targetCode, String limitType,
                                     Period period, LocalDateTime now, long initialValue) {
         String key = QuotaKeyUtils.balanceKey(properties.getRedisPrefix(), targetType, targetCode,
                 limitType, period, now);
         try {
-            Boolean set = redisTemplate.opsForValue().setIfAbsent(key, String.valueOf(initialValue));
-            if (Boolean.TRUE.equals(set)) {
-                redisTemplate.expire(key, Duration.ofSeconds(QuotaKeyUtils.periodTtlSeconds(period, now)));
+            String current = redisTemplate.opsForValue().get(key);
+            if (current == null) {
+                Boolean set = redisTemplate.opsForValue().setIfAbsent(key, String.valueOf(initialValue));
+                if (Boolean.TRUE.equals(set)) {
+                    redisTemplate.expire(key, Duration.ofSeconds(QuotaKeyUtils.periodTtlSeconds(period, now)));
+                }
+            } else if (Long.parseLong(current) < 0) {
+                // 负值残留（并发超支/异常扣减）：以 MySQL 聚合为准覆盖重建
+                redisTemplate.opsForValue().set(key, String.valueOf(initialValue),
+                        Duration.ofSeconds(QuotaKeyUtils.periodTtlSeconds(period, now)));
+                log.info("Redis 余额负值重建, rule={}:{}:{}:{}, old={}, new={}",
+                        targetType, targetCode, limitType, period, current, initialValue);
             }
         } catch (Exception e) {
             log.warn("Redis 初始化余额失败, rule={}:{}:{}:{}, value={}: {}",

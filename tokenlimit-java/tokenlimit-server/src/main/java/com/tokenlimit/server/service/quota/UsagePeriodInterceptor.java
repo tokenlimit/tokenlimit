@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 周期用量拦截（责任链第 3 环）.
- * <p>检查周期用量规则（MONTH / WEEK / DAY / HOUR / MINUTE，策略由规则表配置，含"每次请求" REQUEST_COUNT 限次）：</p>
+ * <p>检查周期用量规则（MINUTE / HOUR / DAY / WEEK / MONTH / YEAR，策略由规则表配置，含"每次请求" REQUEST_COUNT 限次）：</p>
  * <ul>
  *   <li>团队周期规则：任一不足即拒绝（TEAM_QUOTA_EXCEEDED）；</li>
  *   <li>个人周期规则：consumeFrom = PERSONAL 时检查；PERSONAL_FIRST_THEN_TEAM 下个人周期不足时转团队兜底。</li>

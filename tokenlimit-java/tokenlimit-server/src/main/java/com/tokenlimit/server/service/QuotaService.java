@@ -46,7 +46,7 @@ import java.util.UUID;
  * <ul>
  *   <li>{@code team-balance}：Team 余额拦截（TOTAL 周期长期规则）</li>
  *   <li>{@code user-balance}：个人余额拦截（TOTAL 周期长期规则，并确定抵扣来源 consumeFrom）</li>
- *   <li>{@code usage-period}：周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE 规则，含"每次请求" REQUEST_COUNT 限次）</li>
+ *   <li>{@code usage-period}：周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE/YEAR 规则，含"每次请求" REQUEST_COUNT 限次）</li>
  * </ul>
  *
  * <p><b>预计算开关</b>（{@code tokenlimit.quota-precompute-enabled}）：</p>

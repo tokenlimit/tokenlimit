@@ -40,7 +40,7 @@ POST /v1/embeddings         # 可选
 拦截链（任一拦截即拒绝）：
   1. team-balance  团队余额拦截（TOTAL 周期长期规则）
   2. user-balance  个人余额拦截（TOTAL 周期长期规则，并确定抵扣来源）
-  3. usage-period  周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE 规则，含"每次请求"限次）
+  3. usage-period  周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE/YEAR 规则，含"每次请求"限次）
 
 预计算开关（tokenlimit.quota-precompute-enabled，默认开启）：
   开启：调用前真实余额 - 预估量原子预扣（>=0 才放行，==0 也放行；<0 拦截），结束后回滚预扣、按厂商真实值扣减余额
@@ -53,7 +53,7 @@ POST /v1/embeddings         # 可选
 ```text
 配额对象：TEAM（团队预算池） / USER（个人额度）
 配额类型：TOKEN（Token 数量） / COST（费用金额） / REQUEST_COUNT（请求次数）
-配额周期：DAY / MONTH / TOTAL
+配额周期：MINUTE / HOUR / DAY / WEEK / MONTH / YEAR / TOTAL
 ```
 
 User 级 `quota_mode`（默认 `PERSONAL_FIRST_THEN_TEAM`）：

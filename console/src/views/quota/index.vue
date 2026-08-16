@@ -163,7 +163,7 @@ const rules: FormRules = {
 
 const targetTypes = computed(() => meta.value?.targetTypes || ['TEAM', 'USER'])
 const limitTypes = computed(() => meta.value?.limitTypes || ['TOKEN', 'COST', 'REQUEST_COUNT', 'RPM', 'TPM'])
-const periods = computed(() => meta.value?.periods || ['MINUTE', 'HOUR', 'DAY', 'MONTH', 'TOTAL'])
+const periods = computed(() => meta.value?.periods || ['MINUTE', 'HOUR', 'DAY', 'WEEK', 'MONTH', 'YEAR', 'TOTAL'])
 
 const limitTypeIsCost = computed(() => form.limitType === 'COST')
 
@@ -182,7 +182,7 @@ function limitText(t: string) {
   return { TOKEN: 'Token', COST: '费用', REQUEST_COUNT: '请求数', RPM: 'RPM', TPM: 'TPM' }[t] || t
 }
 function periodText(p: string) {
-  return { MINUTE: '分钟', HOUR: '小时', DAY: '天', MONTH: '月', TOTAL: '总计' }[p] || p
+  return { MINUTE: '分钟', HOUR: '小时', DAY: '天', WEEK: '周', MONTH: '月', YEAR: '年', TOTAL: '总计' }[p] || p
 }
 function formatLimit(row: QuotaRule) {
   if (row.limitType === 'COST') return `¥${Number(row.limitValue).toLocaleString()}`

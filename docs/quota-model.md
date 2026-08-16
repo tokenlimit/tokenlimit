@@ -9,7 +9,7 @@ Token Limit 使用 **责任链拦截 + Redis 双 key（balance / pre）** 的配
   1. 责任链拦截（tokenlimit.quota-chain 可配置顺序/裁剪，任一拦截即拒绝）：
      team-balance   团队余额拦截（TOTAL 周期长期规则）
      user-balance   个人余额拦截（TOTAL 周期长期规则，并确定抵扣来源 consumeFrom）
-     usage-period   周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE 规则，含"每次请求" REQUEST_COUNT 限次）
+     usage-period   周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE/YEAR 规则，含"每次请求" REQUEST_COUNT 限次）
   2. 预计算开关（tokenlimit.quota-precompute-enabled，默认开启）：
      开启：对适用规则按 jtokkit 预估量原子预扣（INCRBY pre），预扣值凭空写入
      关闭：不预扣，仅判断余额
@@ -42,7 +42,26 @@ tokenlimit:quota:pre:user:user-001:TOKEN:WEEK:2026W33
 tokenlimit:quota:pre:team:team-rd:REQUEST_COUNT:HOUR:2026081614
 ```
 
-`timeKey` 即周期时间片：MINUTE `yyyyMMddHHmm` / HOUR `yyyyMMddHH` / DAY `yyyyMMdd` / WEEK `yyyy'W'ww`（ISO 周）/ MONTH `yyyyMM` / TOTAL `total`。
+`timeKey` 即周期时间片：MINUTE `yyyyMMddHHmm` / HOUR `yyyyMMddHH` / DAY `yyyyMMdd` / WEEK `yyyy'W'ww`（ISO 周）/ MONTH `yyyyMM` / YEAR `yyyy` / TOTAL `total`。
+
+## 2.1 缓存维护（无缓存就去数据库加）
+
+每个周期规则（每日/每小时/每周/每月/每年等）首次被访问时，按固定流程装载余额缓存：
+
+```text
+读取规则配置（limit_value + period）→ 查询 MySQL usage_log 聚合该周期真实用量 → 计算余额（limit - 用量）→ 写入 Redis balance key（TTL = 周期剩余时间）→ 开始拦截校验
+```
+
+缓存维护规则（`QuotaRedisService.initBalanceIfAbsent`）：
+
+| 缓存状态 | 处理 |
+| --- | --- |
+| key 缺失（首次访问 / 周期滚动 / 缓存丢失） | SETNX 写入初始值（limit - MySQL 聚合用量），并设置周期 TTL |
+| key 为负值（并发超支残留 / 异常扣减） | 以 MySQL 聚合值覆盖重建，恢复正确余额 |
+| key 为正常非负值 | 保持不动（缓存优先，避免覆盖并发的实时扣减） |
+
+- 周期滚动后 key 自动过期（TTL = 周期剩余时间），下次访问自动从 MySQL 重新聚合装载；
+- 实时性由 report 阶段原子扣减（INCRBY -actual）维持，MySQL 为事实来源，Redis 缓存丢失/故障可从 MySQL 完全重建。
 
 ## 3. 拦截判定（责任链拦截器）
 

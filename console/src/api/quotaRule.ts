@@ -10,7 +10,7 @@ export interface QuotaRule {
   /** TOKEN / COST / REQUEST_COUNT / RPM / TPM */
   limitType?: string
   limitValue?: number
-  /** MINUTE / HOUR / DAY / MONTH / TOTAL */
+  /** MINUTE / HOUR / DAY / WEEK / MONTH / YEAR / TOTAL */
   period?: string
   priority?: number
   enabled?: boolean

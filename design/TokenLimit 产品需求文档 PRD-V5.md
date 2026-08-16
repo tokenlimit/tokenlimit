@@ -415,7 +415,7 @@ V5.2 采用**责任链拦截 + 预计算开关**（拦截策略可配置，丰�
 调用大模型前，按配置链顺序拦截（任一拦截即拒绝）：
   1. team-balance  团队余额拦截（TOTAL 周期长期规则）
   2. user-balance  个人余额拦截（TOTAL 周期长期规则，并确定抵扣来源）
-  3. usage-period  周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE 规则，含"每次请求" REQUEST_COUNT 限次）
+  3. usage-period  周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE/YEAR 规则，含"每次请求" REQUEST_COUNT 限次）
 
 预计算开关（tokenlimit.quota-precompute-enabled，默认开启）：
   开启（精准前置）：真实余额 - 预扣值 >= 0 才放行（==0 也放行，调用尚未发生；<0 拦截），按 jtokkit 预估量原子预扣

@@ -50,7 +50,7 @@ function fmt(v?: number) {
 }
 
 function periodText(p?: string) {
-  const map: Record<string, string> = { DAY: '日', MONTH: '月', TOTAL: '累计' }
+  const map: Record<string, string> = { MINUTE: '分', HOUR: '时', DAY: '日', WEEK: '周', MONTH: '月', YEAR: '年', TOTAL: '累计' }
   return map[p || ''] || p || '-'
 }
 

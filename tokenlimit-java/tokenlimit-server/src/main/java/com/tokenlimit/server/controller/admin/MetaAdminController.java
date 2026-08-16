@@ -88,7 +88,7 @@ public class MetaAdminController {
         data.put("roles", List.of("USER", "TEAM_ADMIN", "ADMIN"));
         data.put("apiKeyStatuses", List.of("ENABLED", "DISABLED", "EXPIRED", "REVOKED"));
         data.put("limitTypes", List.of("TOKEN", "COST", "REQUEST_COUNT", "RPM", "TPM"));
-        data.put("periods", List.of("MINUTE", "HOUR", "DAY", "MONTH", "TOTAL"));
+        data.put("periods", List.of("MINUTE", "HOUR", "DAY", "WEEK", "MONTH", "YEAR", "TOTAL"));
         data.put("auditEventTypes", List.of(
                 "LOGIN_SUCCESS", "LOGIN_FAILED", "CREATE_TEAM",
                 "CREATE_USER", "DISABLE_USER", "RESET_PASSWORD", "CREATE_API_KEY",

@@ -14,7 +14,7 @@ import java.time.format.DateTimeFormatter;
  * <br>示例：tokenlimit:quota:balance:team:team-rd:TOKEN:DAY:20260813
  * <br>V5.2 双 key：balance 存真实余额（limit - used，used 来自 MySQL 用量聚合，Redis 仅缓存），
  * pre 存进行中请求的预扣总量（本次请求计算得出，原子 INCRBY/DECRBY）。
- * <br>timeKey 即周期时间片（DAY 为 yyyyMMdd，WEEK 为 ISO 周 yyyy'W'ww，MONTH 为 yyyyMM，TOTAL 为 total）。</p>
+ * <br>timeKey 即周期时间片（MINUTE 为 yyyyMMddHHmm，HOUR 为 yyyyMMddHH，DAY 为 yyyyMMdd，WEEK 为 ISO 周 yyyy'W'ww，MONTH 为 yyyyMM，YEAR 为 yyyy，TOTAL 为 total）。</p>
  */
 public final class QuotaKeyUtils {
 
@@ -23,6 +23,7 @@ public final class QuotaKeyUtils {
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final DateTimeFormatter WEEK = DateTimeFormatter.ofPattern("yyyy'W'ww");
     private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("yyyyMM");
+    private static final DateTimeFormatter YEAR = DateTimeFormatter.ofPattern("yyyy");
 
     private QuotaKeyUtils() {
     }
@@ -72,6 +73,7 @@ public final class QuotaKeyUtils {
             case DAY -> now.format(DAY);
             case WEEK -> now.format(WEEK);
             case MONTH -> now.format(MONTH);
+            case YEAR -> now.format(YEAR);
             case TOTAL -> "total";
         };
     }
@@ -87,6 +89,7 @@ public final class QuotaKeyUtils {
             case DAY -> now.toLocalDate().atStartOfDay();
             case WEEK -> now.toLocalDate().with(DayOfWeek.MONDAY).atStartOfDay();
             case MONTH -> now.toLocalDate().withDayOfMonth(1).atStartOfDay();
+            case YEAR -> now.toLocalDate().withDayOfYear(1).atStartOfDay();
             case TOTAL -> LocalDateTime.of(1970, 1, 1, 0, 0);
         };
     }
@@ -111,6 +114,11 @@ public final class QuotaKeyUtils {
                 long lastDay = now.toLocalDate().lengthOfMonth();
                 yield (lastDay - now.getDayOfMonth() + 1) * 86400L
                         - (now.getHour() * 3600L + now.getMinute() * 60L + now.getSecond());
+            }
+            case YEAR -> {
+                LocalDateTime nextYear = now.toLocalDate()
+                        .withDayOfYear(1).plusYears(1).atStartOfDay();
+                yield Duration.between(now, nextYear).getSeconds();
             }
             case TOTAL -> 365 * 86400L;
         };

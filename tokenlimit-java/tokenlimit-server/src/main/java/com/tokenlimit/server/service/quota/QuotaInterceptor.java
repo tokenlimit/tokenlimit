@@ -7,7 +7,7 @@ package com.tokenlimit.server.service.quota;
  * <ul>
  *   <li>{@code team-balance}：Team 余额拦截（TOTAL 周期规则）</li>
  *   <li>{@code user-balance}：个人余额拦截（TOTAL 周期规则，并确定 consumeFrom）</li>
- *   <li>{@code usage-period}：周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE 规则，策略由规则表配置）</li>
+ *   <li>{@code usage-period}：周期用量拦截（MONTH/WEEK/DAY/HOUR/MINUTE/YEAR 规则，策略由规则表配置）</li>
  * </ul>
  */
 public interface QuotaInterceptor {

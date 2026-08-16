@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS `tl_api_key` (
 -- 4. tl_quota_rule 配额规则（PRD V5.2 责任链拦截模型）
 --    规则描述「谁(target_type+target_code) + 哪个模型(model) + 哪种额度(limit_type) + 限额(limit_value) + 周期(period)」
 --    limit_type: TOKEN（token 数）/ COST（金额）/ REQUEST_COUNT（请求次数）
---    period: MINUTE / HOUR / DAY / WEEK / MONTH / TOTAL
+--    period: MINUTE / HOUR / DAY / WEEK / MONTH / YEAR / TOTAL
 --    状态：ENABLED / DISABLED
 -- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `tl_quota_rule` (
@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS `tl_quota_rule` (
   `model`           VARCHAR(64)   DEFAULT NULL COMMENT '模型维度，NULL 或 * 表示全部模型',
   `limit_type`      VARCHAR(32)   NOT NULL COMMENT '限制类型：TOKEN/COST/REQUEST_COUNT',
   `limit_value`     DECIMAL(18,4) NOT NULL COMMENT '限制值（TOKEN/请求数为整数，COST 为金额）',
-  `period`          VARCHAR(32)   NOT NULL COMMENT '周期：DAY/MONTH/TOTAL',
+  `period`          VARCHAR(32)   NOT NULL COMMENT '周期：MINUTE/HOUR/DAY/WEEK/MONTH/YEAR/TOTAL',
   `status`          VARCHAR(32)   NOT NULL DEFAULT 'ENABLED' COMMENT '状态：ENABLED/DISABLED',
   `description`     VARCHAR(255)  DEFAULT NULL COMMENT '描述',
   `created_at`      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
