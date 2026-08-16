@@ -15,7 +15,9 @@ Base URL: `/api`
 - `code == 0` 表示成功
 - `code != 0` 表示失败，见[错误码](#错误码)
 
-认证方式：`Authorization: Bearer <api_key>`
+认证方式：`Authorization: Bearer <access_key>:<secret>`
+
+> API Key 为两段式凭证：`accessKey`（`tl_ak_xxx`，公开标识）+ `secret`（`sk_tl_xxx`，仅创建/重置时显示一次）。客户端将两段用冒号拼接为单个字符串，网关按第一个冒号拆分后双向校验；兼容 Cursor 等只支持单个 API Key 的客户端。
 
 ---
 

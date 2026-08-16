@@ -116,6 +116,32 @@ API Key 的职责：
 可独立禁用、删除。
 ```
 
+#### 3.4.1 凭证格式（两段式）
+
+API Key 由 **accessKey + secret** 两段组成：
+
+| 字段 | 格式 | 说明 |
+|---|---|---|
+| accessKey | `tl_ak_xxxxxxxx` | 公开标识，全局唯一，用于定位 Key（控制台列表可见） |
+| secret | `sk_tl_xxxxxxxx...`（48 位随机串） | 机密部分，明文仅创建 / 重置时返回一次，库中只存 SHA-256 哈希 |
+
+客户端调用 TokenLimit Proxy 时，将两段用冒号拼接为**单个字符串**填入（兼容 Cursor 等只支持单个 API Key 的客户端）：
+
+```text
+Authorization: Bearer <access_key>:<secret>
+例：Bearer tl_ak_3f8a9c21:sk_tl_4f2b8a6c...
+```
+
+网关解析后按 accessKey 查库定位、校验 secret 哈希，双向校验通过才放行。
+
+#### 3.4.2 客户端接入示例（Cursor）
+
+```text
+Model Provider: OpenAI
+Base URL:       http://<tokenlimit-host>:8080/v1
+API Key:        tl_ak_xxxxxxxx:sk_tl_xxxxxxxx...   # access_key 与 secret 用冒号拼接
+```
+
 ### 3.5 Provider Credential
 
 Provider Credential 是真实大模型供应商的 API Key，由 TokenLimit 统一托管。

@@ -104,13 +104,32 @@ tokenlimit/
 
 ## 4. 核心网关链路设计
 
-1. **接入与鉴权**：解析 `Authorization: Bearer <tokenlimit_key>`，获取 Team/User 信息。
+1. **接入与鉴权**：解析 `Authorization: Bearer <access_key>:<secret>`，获取 Team/User 信息。
 2. **策略校验**：检查 Team Model Policy，判断模型是否允许。
 3. **Token 预估**：使用 jtokkit 计算 `estimated_prompt_tokens`。
 4. **配额拦截**：读 Redis `used`，若超限直接返回 429。
 5. **路由与转发**：查找 Provider Credential，通过**连接池 HttpClient** 发起请求。
 6. **流式透传**：收到 SSE Chunk **立刻 Flush 给客户端**，同时累计已转发内容。
 7. **结算与持久化**：流结束/中断后，获取真实 Usage（或预估兜底），**先写 MySQL，再更新 Redis**。
+
+### 4.1 API Key 凭证格式与鉴权流程
+
+API Key 为**两段式凭证**：`accessKey`（格式 `tl_ak_xxxxxxxx`，公开标识，全局唯一）+ `secret`（格式 `sk_tl_xxxxxxxx...`，机密，明文仅创建/重置时返回一次，库中仅存 SHA-256 哈希）。
+
+为兼容 Cursor 等只支持单个 API Key 的客户端，客户端将两段用冒号拼接为单个字符串，网关按第一个冒号拆分后双向校验：
+
+```text
+客户端：Authorization: Bearer <access_key>:<secret>
+       例：Bearer tl_ak_3f8a9c21:sk_tl_4f2b8a6c...
+
+网关：1. 按 accessKey 查库定位 API Key（不存在 → 401 INVALID_API_KEY）
+     2. 校验状态：ENABLED / 过期自动置 EXPIRED / 禁用
+     3. 校验 secret 与 secretHash 是否匹配（不匹配 → 401 INVALID_API_KEY）
+     4. 通过后注入 SecurityContext（principal=ApiKey，credentials=[accessKey, secret]），
+        供后续配额 check / report 复用
+```
+
+> 设计要点：accessKey 作为公开标识可安全出现在日志与审计中；secret 只存哈希，泄露后调用重置密钥接口单独更换 secret 即可，无需重建整把 Key。
 
 ---
 
