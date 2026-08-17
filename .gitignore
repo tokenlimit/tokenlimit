@@ -1,80 +1,48 @@
 ```
-# Compiled and build artifacts
-*.pyc
-__pycache__/
-*.o
-*.obj
-*.class
-*.jar
-*.war
-*.class
-*.so
-*.dll
-*.exe
-*.out
-*.a
-
-# Dependencies
-node_modules/
-venv/
-.venv/
+# Environment
 .env
 .env.local
 .env.*
 
-# Build directories
-dist/
-build/
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
 target/
 .gradle/
 
-# Logs and temp files
-*.log
-*.tmp
-*.swp
-*.swo
+# Build artifacts
+dist/
+build/
+*.pyc
+*.class
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.obj
+*.out
 
-# Editors
+# Editor/IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*.tmp
+
+# Logs
+*.log
 
 # Coverage
 coverage/
 htmlcov/
 .coverage
 
-# Python specific
-*.pyc
-__pycache__/
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.nox/
-.pytest_cache/
-.mypy_cache/
-
-# Java specific
-*.class
-*.jar
-*.war
-*.ear
-*.zip
-hs_err_pid*
-replay_pid*
-
-# OS generated files
+# System
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 ```
