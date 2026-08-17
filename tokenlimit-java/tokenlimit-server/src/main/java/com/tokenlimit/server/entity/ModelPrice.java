@@ -4,12 +4,20 @@ import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 /**
  * 模型价格实体（价格管理 / 计费基准）.
  * <p>价格单位为每 1 个 Token 的单价（避免计算时频繁除以 1000000）；
  * 修改价格只影响新调用——usage_log 已固化为计费快照，历史费用不可变。</p>
  * status: ENABLED / DISABLED
+ * 
+ * V5.5 峰谷定价策略：
+ * - pricing_type: FLAT(固定定价) / PEAK_OFF_PEAK(峰谷定价)
+ * - peak_multiplier: 高峰时段价格系数 (默认 1.0)
+ * - off_peak_multiplier: 低谷时段价格系数 (如 0.5 表示 5 折)
+ * - off_peak_start: 低谷开始时间 (如 22:00)
+ * - off_peak_end: 低谷结束时间 (如 次日 08:00，支持跨天)
  */
 @TableName("tl_model_price")
 public class ModelPrice extends BaseEntity {
@@ -30,6 +38,18 @@ public class ModelPrice extends BaseEntity {
     /** 生效时间（记录最近一次改价时间） */
     private LocalDateTime effectiveAt;
     private String createdBy;
+    
+    // ========== V5.5 峰谷定价策略字段 ==========
+    /** 定价类型：FLAT(固定定价), PEAK_OFF_PEAK(峰谷定价) */
+    private String pricingType;
+    /** 高峰时段价格系数 (如 1.0) */
+    private BigDecimal peakMultiplier;
+    /** 低谷时段价格系数 (如 0.50 表示 5 折) */
+    private BigDecimal offPeakMultiplier;
+    /** 低谷开始时间 (如 22:00:00) */
+    private LocalTime offPeakStart;
+    /** 低谷结束时间 (如 08:00:00，支持跨天) */
+    private LocalTime offPeakEnd;
 
     public String getProvider() {
         return provider;
@@ -109,5 +129,45 @@ public class ModelPrice extends BaseEntity {
 
     public void setCreatedBy(String createdBy) {
         this.createdBy = createdBy;
+    }
+
+    public String getPricingType() {
+        return pricingType;
+    }
+
+    public void setPricingType(String pricingType) {
+        this.pricingType = pricingType;
+    }
+
+    public BigDecimal getPeakMultiplier() {
+        return peakMultiplier;
+    }
+
+    public void setPeakMultiplier(BigDecimal peakMultiplier) {
+        this.peakMultiplier = peakMultiplier;
+    }
+
+    public BigDecimal getOffPeakMultiplier() {
+        return offPeakMultiplier;
+    }
+
+    public void setOffPeakMultiplier(BigDecimal offPeakMultiplier) {
+        this.offPeakMultiplier = offPeakMultiplier;
+    }
+
+    public LocalTime getOffPeakStart() {
+        return offPeakStart;
+    }
+
+    public void setOffPeakStart(LocalTime offPeakStart) {
+        this.offPeakStart = offPeakStart;
+    }
+
+    public LocalTime getOffPeakEnd() {
+        return offPeakEnd;
+    }
+
+    public void setOffPeakEnd(LocalTime offPeakEnd) {
+        this.offPeakEnd = offPeakEnd;
     }
 }

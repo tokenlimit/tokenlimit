@@ -86,6 +86,9 @@ public class UsageLog extends BaseEntity {
     /** 计费快照：调用时缓存写入单价（每 Token，未配置为 null） */
     private BigDecimal cacheWritePriceSnapshot;
 
+    /** 计费快照：调用时的峰谷价格系数（V5.5 峰谷定价策略） */
+    private BigDecimal priceMultiplierSnapshot;
+
     /** 额度消耗来源：TEAM / USER */
     private String consumeFrom;
 
@@ -283,6 +286,14 @@ public class UsageLog extends BaseEntity {
 
     public void setCacheWritePriceSnapshot(BigDecimal cacheWritePriceSnapshot) {
         this.cacheWritePriceSnapshot = cacheWritePriceSnapshot;
+    }
+
+    public BigDecimal getPriceMultiplierSnapshot() {
+        return priceMultiplierSnapshot;
+    }
+
+    public void setPriceMultiplierSnapshot(BigDecimal priceMultiplierSnapshot) {
+        this.priceMultiplierSnapshot = priceMultiplierSnapshot;
     }
 
     public String getConsumeFrom() {

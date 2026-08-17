@@ -1058,6 +1058,9 @@ CREATE TABLE tl_usage_log (
     cache_read_price_snapshot DECIMAL(18,10) NULL,
     cache_write_price_snapshot DECIMAL(18,10) NULL,
 
+    -- 峰谷定价快照（V5.5）：调用时的峰谷价格系数，用于审计和成本分析
+    price_multiplier_snapshot DECIMAL(5,2) DEFAULT 1.0 COMMENT '调用时的峰谷价格系数 (如 0.5 表示低谷 5 折)',
+
     -- 扣减来源
     consume_from VARCHAR(32) NULL,
 
@@ -1117,6 +1120,13 @@ CREATE TABLE tl_model_price (
     cache_read_price_per_token DECIMAL(18,10) NULL,
     cache_write_price_per_token DECIMAL(18,10) NULL,
 
+    -- 峰谷定价策略（V5.5）：支持分时段动态定价，引导企业将非实时任务调度到低谷时段
+    pricing_type VARCHAR(32) NOT NULL DEFAULT 'FLAT' COMMENT '定价类型：FLAT(固定定价), PEAK_OFF_PEAK(峰谷定价)',
+    peak_multiplier DECIMAL(5,2) NOT NULL DEFAULT 1.00 COMMENT '高峰时段价格系数 (如 1.0)',
+    off_peak_multiplier DECIMAL(5,2) NOT NULL DEFAULT 0.50 COMMENT '低谷时段价格系数 (如 0.5)',
+    off_peak_start TIME NOT NULL DEFAULT '22:00:00' COMMENT '低谷开始时间 (如 22:00)',
+    off_peak_end TIME NOT NULL DEFAULT '08:00:00' COMMENT '低谷结束时间 (如 次日 08:00)',
+
     currency VARCHAR(16) NOT NULL DEFAULT 'CNY',
     status VARCHAR(32) NOT NULL DEFAULT 'ENABLED',
     effective_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1132,6 +1142,14 @@ CREATE TABLE tl_model_price (
 > 缓存单价（cache_read/write_price_per_token）为可选项，厂商参考折扣：OpenAI 缓存读取为输入价 5 折、
 > Anthropic 缓存读取 1 折 / 缓存写入为输入价 1.25 倍、DeepSeek 缓存读取约 1 折；
 > 未配置时缓存 token 按正常输入价计费。缓存单价同样固化为 usage_log 快照，改价不影响历史账单。
+> 
+> **峰谷定价规则（V5.5）**：
+> - `pricing_type = 'FLAT'`：固定定价，所有时段统一价格（兼容旧版本）。
+> - `pricing_type = 'PEAK_OFF_PEAK'`：峰谷定价，根据请求时间动态应用价格系数。
+> - 低谷时段判断逻辑：支持跨天场景（如 22:00 - 次日 08:00）。
+> - 最终单价计算公式：`最终单价 = 基础单价 × 缓存折扣 × 峰谷系数`。
+> - 峰谷系数在调用发生时计算，并固化到 `usage_log.price_multiplier_snapshot` 字段。
+> - 修改峰谷规则（时段/系数）只影响新调用，历史账单保持不变。
 
 ---
 
@@ -1181,7 +1199,39 @@ consumeFrom 必须正确记录 PERSONAL / TEAM。
 Redis used 与 MySQL 聚合值一致。
 ```
 
-### 15.5 Provider Credential 验收
+### 15.5 峰谷定价验收（V5.5）
+
+```text
+固定定价模式 (FLAT)：
+  - pricing_type = 'FLAT' 时，所有时段价格系数均为 1.0。
+  - price_multiplier_snapshot 始终为 1.0。
+
+峰谷定价模式 (PEAK_OFF_PEAK)：
+  - pricing_type = 'PEAK_OFF_PEAK' 时，根据请求时间动态计算价格系数。
+  - 低谷时段（如 22:00-08:00）内调用，price_multiplier_snapshot = off_peak_multiplier（如 0.5）。
+  - 高峰时段调用，price_multiplier_snapshot = peak_multiplier（如 1.0）。
+  - 跨天低谷时段判断正确（22:00-次日 08:00 场景）。
+
+缓存 + 峰谷叠加：
+  - 命中缓存且处于低谷时段：最终单价 = 缓存单价 × 峰谷系数。
+  - 例如：缓存输入价 ¥1.25/M，峰谷系数 0.5 → 最终 ¥0.625/M。
+
+历史不可变性：
+  - 修改峰谷规则（时段/系数）后，历史 usage_log 的 price_multiplier_snapshot 不变。
+  - 报表统计历史成本时，SUM(cost) 结果不受价格规则变更影响。
+
+控制台配置：
+  - ADMIN 可在模型价格管理页面切换定价模式（固定/峰谷）。
+  - 峰谷模式下可配置：低谷时段（起止时间）、低谷系数、高峰系数。
+  - 保存时有提示："修改峰谷规则将只影响新的调用，历史账单不会变更"。
+
+成本优化建议（FinOps 增值功能）：
+  - Dashboard 展示峰谷成本对比：高峰期消耗 vs 低谷期消耗。
+  - 智能调度提示：检测到高峰期批量任务，建议调度至低谷时段执行。
+  - 用户额度页面显示当前时段价格系数（如"当前低谷 5 折，额度消耗速度减半"）。
+```
+
+### 15.6 Provider Credential 验收
 
 ```text
 ADMIN 可以添加 Provider Credential。
@@ -1235,6 +1285,18 @@ Client usage/report API
 RPM / TPM 限流
 供应商账单导入
 对账功能
+```
+
+### P3：峰谷定价（V5.5）
+
+```text
+tl_model_price 表增加峰谷字段（pricing_type, peak_multiplier, off_peak_multiplier, off_peak_start, off_peak_end）。
+tl_usage_log 表增加 price_multiplier_snapshot 字段。
+计费引擎支持时间段判断逻辑（跨天场景处理）。
+最终单价计算公式：最终单价 = 基础单价 × 缓存折扣 × 峰谷系数。
+控制台模型价格管理页面支持峰谷配置 UI。
+Dashboard 峰谷成本对比报表。
+智能调度建议功能（检测高峰期批量任务）。
 ```
 
 ---
@@ -1336,4 +1398,8 @@ Team 成本看板增强。
 19. MySQL 持久化所有用量记录，Redis 用于实时配额检查。
 20. 写入顺序：先写 MySQL，再更新 Redis。
 21. 第一版目标是立即防止 Cursor / DeepSeek Harness 调用导致账单爆炸。
+22. 峰谷定价（V5.5）：支持分时段动态定价，引导企业将非实时任务调度到低谷时段。
+23. 最终单价计算公式：最终单价 = 基础单价 × 缓存折扣 × 峰谷系数。
+24. 峰谷系数在调用发生时固化到 usage_log，历史账单不可变。
+25. 修改峰谷规则只影响新调用，不影响历史记录。
 ```
