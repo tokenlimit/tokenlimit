@@ -134,6 +134,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '对账中心', roles: SUPER_ROLES }
       },
       {
+        path: 'policies',
+        name: 'ModelPolicy',
+        component: () => import('@/views/policy/index.vue'),
+        meta: { title: '模型策略', roles: SUPER_ROLES }
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/settings/index.vue'),

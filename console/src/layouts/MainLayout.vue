@@ -67,6 +67,7 @@ import {
   ArrowDown,
   Avatar,
   Coin,
+  Connection,
   Document,
   Files,
   Key,
@@ -169,6 +170,7 @@ const allAdminGroups: { roles?: string[]; group: MenuGroup }[] = [
       title: '系统',
       items: [
         { index: '/reconciles', icon: ScaleToOriginal, title: '对账中心' },
+        { index: '/policies', icon: Connection, title: '模型策略' },
         { index: '/settings', icon: Setting, title: '系统设置' }
       ]
     }
