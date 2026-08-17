@@ -27,25 +27,25 @@ export function listQuotaRules(params?: {
   period?: string
   keyword?: string
 }): Promise<PageResult<QuotaRule>> {
-  return httpGet<PageResult<QuotaRule>>('/v1/admin/quota-rules', params)
+  return httpGet<PageResult<QuotaRule>>('/api/admin/quota-rules', params)
 }
 
 export function getQuotaRule(id: number): Promise<QuotaRule> {
-  return httpGet<QuotaRule>(`/v1/admin/quota-rules/${id}`)
+  return httpGet<QuotaRule>(`/api/admin/quota-rules/${id}`)
 }
 
 export function createQuotaRule(data: QuotaRule): Promise<QuotaRule> {
-  return httpPost<QuotaRule>('/v1/admin/quota-rules', data)
+  return httpPost<QuotaRule>('/api/admin/quota-rules', data)
 }
 
 export function updateQuotaRule(id: number, data: QuotaRule): Promise<QuotaRule> {
-  return httpPut<QuotaRule>(`/v1/admin/quota-rules/${id}`, data)
+  return httpPut<QuotaRule>(`/api/admin/quota-rules/${id}`, data)
 }
 
 export function deleteQuotaRule(id: number): Promise<void> {
-  return httpDelete<void>(`/v1/admin/quota-rules/${id}`)
+  return httpDelete<void>(`/api/admin/quota-rules/${id}`)
 }
 
 export function changeQuotaRuleStatus(id: number, enabled: boolean): Promise<void> {
-  return httpPut<void>(`/v1/admin/quota-rules/${id}/status`, undefined, { enabled })
+  return httpPut<void>(`/api/admin/quota-rules/${id}/status`, undefined, { enabled })
 }

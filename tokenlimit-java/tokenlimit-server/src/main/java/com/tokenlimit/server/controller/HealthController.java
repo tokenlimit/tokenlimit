@@ -10,13 +10,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 健康检查.
+ * 健康检查 - 云原生标准接口，不绑定业务 API 版本.
  */
 @RestController
-@RequestMapping("/api/v1")
+@RequestMapping("/health")
 public class HealthController {
 
-    @GetMapping("/health")
+    @GetMapping
     public Result<Map<String, Object>> health() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", "UP");

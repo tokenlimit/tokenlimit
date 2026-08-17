@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>PRD 4.5 / 11.1：团队管理（创建 / 编辑 / 禁用）仅 ADMIN；TEAM_ADMIN 只能管理本 Team 数据，无团队 CRUD 权限。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/teams")
+@RequestMapping("/api/admin/teams")
 @PreAuthorize("hasRole('ADMIN')")
 public class TeamAdminController {
 

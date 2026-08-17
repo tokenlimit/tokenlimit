@@ -28,13 +28,13 @@ export interface TopTeam {
 }
 
 export function getDashboardStats(): Promise<DashboardStats> {
-  return httpGet<DashboardStats>('/v1/admin/dashboard/stats')
+  return httpGet<DashboardStats>('/api/admin/dashboard/stats')
 }
 
 export function getDashboardTrend(days = 7): Promise<TrendPoint[]> {
-  return httpGet<TrendPoint[]>('/v1/admin/dashboard/trend', { days })
+  return httpGet<TrendPoint[]>('/api/admin/dashboard/trend', { days })
 }
 
 export function getTopTeams(topN = 5): Promise<TopTeam[]> {
-  return httpGet<TopTeam[]>('/v1/admin/dashboard/top-teams', { topN })
+  return httpGet<TopTeam[]>('/api/admin/dashboard/top-teams', { topN })
 }

@@ -32,29 +32,29 @@ export function listApiKeys(params?: {
   keyword?: string
   status?: string
 }): Promise<PageResult<ApiKey>> {
-  return httpGet<PageResult<ApiKey>>('/v1/admin/api-keys', params)
+  return httpGet<PageResult<ApiKey>>('/api/admin/api-keys', params)
 }
 
 export function getApiKey(id: number): Promise<ApiKey> {
-  return httpGet<ApiKey>(`/v1/admin/api-keys/${id}`)
+  return httpGet<ApiKey>(`/api/admin/api-keys/${id}`)
 }
 
 export function createApiKey(data: Partial<ApiKey>): Promise<CreateApiKeyResult> {
-  return httpPost<CreateApiKeyResult>('/v1/admin/api-keys', data)
+  return httpPost<CreateApiKeyResult>('/api/admin/api-keys', data)
 }
 
 export function updateApiKey(id: number, data: Partial<ApiKey>): Promise<ApiKey> {
-  return httpPut<ApiKey>(`/v1/admin/api-keys/${id}`, data)
+  return httpPut<ApiKey>(`/api/admin/api-keys/${id}`, data)
 }
 
 export function deleteApiKey(id: number): Promise<void> {
-  return httpDelete<void>(`/v1/admin/api-keys/${id}`)
+  return httpDelete<void>(`/api/admin/api-keys/${id}`)
 }
 
 export function resetApiKeySecret(id: number): Promise<{ accessKey?: string; secret: string }> {
-  return httpPost<{ accessKey?: string; secret: string }>(`/v1/admin/api-keys/${id}/reset-secret`)
+  return httpPost<{ accessKey?: string; secret: string }>(`/api/admin/api-keys/${id}/reset-secret`)
 }
 
 export function changeApiKeyStatus(id: number, status: string): Promise<void> {
-  return httpPut<void>(`/v1/admin/api-keys/${id}/status`, undefined, { status })
+  return httpPut<void>(`/api/admin/api-keys/${id}/status`, undefined, { status })
 }

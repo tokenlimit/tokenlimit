@@ -35,7 +35,7 @@ import java.util.Map;
  * <p>PRD 4.5 / 11.2：TEAM_ADMIN 只能管理本 Team 下的 User（list/create 强制 teamCode，其他操作校验归属）。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/users")
+@RequestMapping("/api/admin/users")
 @PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN')")
 public class UserAdminController {
 

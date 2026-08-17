@@ -36,7 +36,7 @@ import java.util.List;
  * <p>PRD 11.2：TEAM_ADMIN 只能配置本 Team 配额规则（TEAM 规则 targetCode=本团队，USER 规则 targetCode 属本团队用户）。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/quota-rules")
+@RequestMapping("/api/admin/quota-rules")
 @PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN')")
 public class QuotaRuleAdminController {
 

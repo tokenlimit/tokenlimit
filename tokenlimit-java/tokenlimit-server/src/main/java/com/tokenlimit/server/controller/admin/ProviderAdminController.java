@@ -40,7 +40,7 @@ import java.util.UUID;
  * <p>真实 Key 加密存储、永不回显；scopeType: GLOBAL / TEAM。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/providers")
+@RequestMapping("/api/admin/providers")
 @PreAuthorize("hasRole('ADMIN')")
 public class ProviderAdminController {
 

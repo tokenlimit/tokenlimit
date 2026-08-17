@@ -34,7 +34,7 @@ import java.util.Map;
  * <p>PRD 11.2：TEAM_ADMIN 只统计本 Team 数据（Team Dashboard）；ADMIN 查看全局。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/dashboard")
+@RequestMapping("/api/admin/dashboard")
 @PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN')")
 public class DashboardAdminController {
 

@@ -26,9 +26,9 @@ export function listAudits(params?: {
   startTime?: string
   endTime?: string
 }): Promise<PageResult<AuditLog>> {
-  return httpGet<PageResult<AuditLog>>('/v1/admin/audits', params)
+  return httpGet<PageResult<AuditLog>>('/api/admin/audits', params)
 }
 
 export function getAudit(id: number): Promise<AuditLog> {
-  return httpGet<AuditLog>(`/v1/admin/audits/${id}`)
+  return httpGet<AuditLog>(`/api/admin/audits/${id}`)
 }

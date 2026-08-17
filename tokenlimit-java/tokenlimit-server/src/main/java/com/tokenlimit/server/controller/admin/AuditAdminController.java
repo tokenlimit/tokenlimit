@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>PRD 11.2：TEAM_ADMIN 可查看本 Team 审计日志（强制 teamCode 过滤）；ADMIN 查看全局。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/audits")
+@RequestMapping("/api/admin/audits")
 @PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN')")
 public class AuditAdminController {
 

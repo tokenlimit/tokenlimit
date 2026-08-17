@@ -30,9 +30,9 @@ export function listUsages(params?: {
   startTime?: string
   endTime?: string
 }): Promise<PageResult<UsageLog>> {
-  return httpGet<PageResult<UsageLog>>('/v1/admin/usages', params)
+  return httpGet<PageResult<UsageLog>>('/api/admin/usages', params)
 }
 
 export function getUsage(id: number): Promise<UsageLog> {
-  return httpGet<UsageLog>(`/v1/admin/usages/${id}`)
+  return httpGet<UsageLog>(`/api/admin/usages/${id}`)
 }

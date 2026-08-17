@@ -26,7 +26,7 @@ import java.util.Map;
  * <p>PRD 11.2：TEAM_ADMIN 下拉数据强制限缩到本 Team（团队仅自身，用户/Key 仅本团队）。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/meta")
+@RequestMapping("/api/admin/meta")
 @PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN')")
 public class MetaAdminController {
 

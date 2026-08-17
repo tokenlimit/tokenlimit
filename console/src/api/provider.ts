@@ -83,7 +83,7 @@ export function listProviderCredentials(params?: {
   keyword?: string
   status?: string
 }): Promise<PageResult<ProviderCredential>> {
-  return httpGet<PageResult<ProviderCredential>>('/v1/admin/providers', params)
+  return httpGet<PageResult<ProviderCredential>>('/api/admin/providers', params)
 }
 
 export function createProviderCredential(data: CreateCredentialParams): Promise<{
@@ -91,28 +91,28 @@ export function createProviderCredential(data: CreateCredentialParams): Promise<
   credentialName: string
   apiKey: string
 }> {
-  return httpPost('/v1/admin/providers', data)
+  return httpPost('/api/admin/providers', data)
 }
 
 export function updateProviderCredential(credentialCode: string, data: CreateCredentialParams): Promise<ProviderCredential> {
-  return httpPut<ProviderCredential>(`/v1/admin/providers/${credentialCode}`, data)
+  return httpPut<ProviderCredential>(`/api/admin/providers/${credentialCode}`, data)
 }
 
 export function toggleProviderCredential(credentialCode: string): Promise<ProviderCredential> {
-  return httpPost<ProviderCredential>(`/v1/admin/providers/${credentialCode}/toggle`)
+  return httpPost<ProviderCredential>(`/api/admin/providers/${credentialCode}/toggle`)
 }
 
 export function deleteProviderCredential(credentialCode: string): Promise<void> {
-  return httpDelete<void>(`/v1/admin/providers/${credentialCode}`)
+  return httpDelete<void>(`/api/admin/providers/${credentialCode}`)
 }
 
 export function listProviderOptions(): Promise<ProviderOption[]> {
-  return httpGet<ProviderOption[]>('/v1/admin/providers/providers')
+  return httpGet<ProviderOption[]>('/api/admin/providers/providers')
 }
 
 /** 内置供应商模板下拉（选择后自动填充 Base URL） */
 export function listProviderTemplates(): Promise<ProviderTemplate[]> {
-  return httpGet<ProviderTemplate[]>('/v1/admin/providers/templates')
+  return httpGet<ProviderTemplate[]>('/api/admin/providers/templates')
 }
 
 export function listModelPolicies(params?: {
@@ -122,22 +122,22 @@ export function listModelPolicies(params?: {
   model?: string
   keyword?: string
 }): Promise<PageResult<TeamModelPolicy>> {
-  return httpGet<PageResult<TeamModelPolicy>>('/v1/admin/model-policies', params)
+  return httpGet<PageResult<TeamModelPolicy>>('/api/admin/model-policies', params)
 }
 
 export function createModelPolicy(data: TeamModelPolicy): Promise<TeamModelPolicy> {
-  return httpPost<TeamModelPolicy>('/v1/admin/model-policies', data)
+  return httpPost<TeamModelPolicy>('/api/admin/model-policies', data)
 }
 
 export function updateModelPolicy(id: number, data: Partial<TeamModelPolicy>): Promise<TeamModelPolicy> {
-  return httpPut<TeamModelPolicy>(`/v1/admin/model-policies/${id}`, data)
+  return httpPut<TeamModelPolicy>(`/api/admin/model-policies/${id}`, data)
 }
 
 export function deleteModelPolicy(id: number): Promise<void> {
-  return httpDelete<void>(`/v1/admin/model-policies/${id}`)
+  return httpDelete<void>(`/api/admin/model-policies/${id}`)
 }
 
 /** 模型策略可用的凭证下拉（GLOBAL + 团队专属） */
 export function listPolicyCredentials(teamCode?: string): Promise<ProviderCredential[]> {
-  return httpGet<ProviderCredential[]>('/v1/admin/model-policies/credentials', { teamCode })
+  return httpGet<ProviderCredential[]>('/api/admin/model-policies/credentials', { teamCode })
 }

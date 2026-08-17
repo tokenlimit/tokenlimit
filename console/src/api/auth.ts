@@ -24,15 +24,15 @@ export interface ChangePasswordParams {
 }
 
 export function login(data: LoginParams): Promise<LoginResult> {
-  return httpPost<LoginResult>('/v1/admin/auth/login', data)
+  return httpPost<LoginResult>('/api/admin/auth/login', data)
 }
 
 export function logout(): Promise<void> {
-  return httpPost<void>('/v1/admin/auth/logout')
+  return httpPost<void>('/api/admin/auth/logout')
 }
 
 export function getProfile(): Promise<LoginResult> {
-  return httpGet<LoginResult>('/v1/admin/auth/profile')
+  return httpGet<LoginResult>('/api/admin/auth/profile')
 }
 
 /**
@@ -40,5 +40,5 @@ export function getProfile(): Promise<LoginResult> {
  * 前端调用 userStore.apply(result) 替换本地令牌即可即时生效。
  */
 export function changePassword(data: ChangePasswordParams): Promise<LoginResult> {
-  return httpPost<LoginResult>('/v1/admin/auth/change-password', data)
+  return httpPost<LoginResult>('/api/admin/auth/change-password', data)
 }

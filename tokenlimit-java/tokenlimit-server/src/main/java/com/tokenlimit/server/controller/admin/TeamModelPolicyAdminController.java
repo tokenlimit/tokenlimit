@@ -30,7 +30,7 @@ import java.util.List;
  * <p>team + model 决定使用哪个 Provider 凭证转发；查找优先级 Team 专属 → GLOBAL。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/model-policies")
+@RequestMapping("/api/admin/model-policies")
 @PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN')")
 public class TeamModelPolicyAdminController {
 
