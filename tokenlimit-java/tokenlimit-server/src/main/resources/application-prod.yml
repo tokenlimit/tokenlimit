@@ -1,0 +1,89 @@
+# =====================================================
+# TokenLimit 生产环境配置 (MySQL 集群 + Redis)
+# =====================================================
+
+server:
+  port: 8080
+  # 生产环境关闭详细错误信息
+  error:
+    whitelabel:
+      enabled: false
+
+spring:
+  application:
+    name: tokenlimit-server
+  threads:
+    virtual:
+      enabled: true
+  
+  # ===== MySQL 集群数据库配置 =====
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL:jdbc:mysql://mysql-cluster:3306/tokenlimit?useUnicode=true&characterEncoding=utf8mb4&useSSL=true&serverTimezone=Asia/Shanghai&connectTimeout=5000&socketTimeout=10000}
+    username: ${DB_USERNAME:tokenlimit}
+    password: ${DB_PASSWORD:CHANGE_ME_IN_PRODUCTION}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  
+  # ===== Redis 集群配置 =====
+  data:
+    redis:
+      host: ${REDIS_HOST:redis-cluster}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DB:0}
+      password: ${REDIS_PASSWORD:CHANGE_ME_IN_PRODUCTION}
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 32
+          max-idle: 16
+          min-idle: 4
+          max-wait: 3000ms
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.tokenlimit.server.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    # 生产环境关闭 SQL 日志
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+  global-config:
+    db-config:
+      id-type: auto
+
+logging:
+  level:
+    com.tokenlimit: warn
+    org.springframework.security: info
+  file:
+    name: /var/log/tokenlimit/tokenlimit.log
+    max-size: 100MB
+    max-history: 30
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+tokenlimit:
+  redis-prefix: tokenlimit:quota
+  quota-precompute-enabled: true
+  quota-chain: team-balance,user-balance,usage-period
+  check-context-ttl-seconds: 3600
+  max-estimated-tokens: 1000000
+  anomaly-ratio-factor: 2.0
+  estimation-min-samples: 20
+  anomaly-deviation-threshold: 0.5
+  login-max-fails: 5
+  login-lock-seconds: 1800
+  # ===== 生产环境必须通过环境变量设置 =====
+  hash-pepper: ${HASH_PEPPER:?HASH_PEPPER environment variable must be set}
+  jwt:
+    secret: ${JWT_SECRET:?JWT_SECRET environment variable must be set and >= 32 bytes}
+    issuer: tokenlimit-server
+    expire-seconds: 28800
+  admin:
+    # 生产环境建议禁用默认账号，强制使用 LDAP/SSO
+    username: ${ADMIN_USERNAME:}
+    password: ${ADMIN_PASSWORD:}
