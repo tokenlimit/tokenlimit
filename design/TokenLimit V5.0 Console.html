@@ -483,6 +483,95 @@
                             </div>
                         </div>
 
+                        <!-- V5.5 峰谷成本分析看板 -->
+                        <div class="grid-2" style="margin-top:16px;">
+                            <div class="card" style="border-left:4px solid var(--primary);">
+                                <div class="page-header">
+                                    <div class="page-title" style="font-size:15px;">📊 峰谷成本对比（本月）</div>
+                                    <span class="tag tag-primary">当前时段：低谷 0.5 折</span>
+                                </div>
+                                <div class="grid-2" style="margin-top:12px;">
+                                    <div>
+                                        <div class="stat-label" style="font-size:13px;">高峰期费用 (08:00-22:00)</div>
+                                        <div class="stat-value" style="font-size:22px;color:#dc2626;">¥8,420</div>
+                                        <div class="stat-sub">用量 3,210,000 Tokens | 平均单价 ¥0.0000026/Token</div>
+                                    </div>
+                                    <div>
+                                        <div class="stat-label" style="font-size:13px;">低谷期费用 (22:00-08:00)</div>
+                                        <div class="stat-value" style="font-size:22px;color:#16a34a;">¥1,680</div>
+                                        <div class="stat-sub">用量 2,890,000 Tokens | 平均单价 ¥0.00000058/Token</div>
+                                    </div>
+                                </div>
+                                <div style="margin-top:16px;padding:12px;background:#f0fdf4;border-radius:8px;">
+                                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                                        <div>
+                                            <div style="font-size:13px;color:#166534;font-weight:600;">💰 本月已节省</div>
+                                            <div style="font-size:24px;color:#16a34a;font-weight:700;margin-top:4px;">¥2,540</div>
+                                        </div>
+                                        <div style="text-align:right;">
+                                            <div style="font-size:13px;color:#166534;">低谷调用占比</div>
+                                            <div style="font-size:20px;color:#16a34a;font-weight:700;margin-top:4px;">47.5%</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- V5.5 智能调度建议 -->
+                            <div class="card" style="border-left:4px solid var(--warning);">
+                                <div class="page-header">
+                                    <div class="page-title" style="font-size:15px;">💡 智能调度建议</div>
+                                    <span class="link">查看全部</span>
+                                </div>
+                                <div style="margin-top:12px;">
+                                    <div style="padding:12px;background:#fffbeb;border-radius:8px;margin-bottom:10px;border:1px solid #fcd34d;">
+                                        <div style="display:flex;gap:10px;align-items:start;">
+                                            <div style="font-size:18px;">🌙</div>
+                                            <div style="flex:1;">
+                                                <div style="font-weight:600;color:#92400e;margin-bottom:4px;">team-data 批量任务可优化</div>
+                                                <div style="font-size:13px;color:#78350f;line-height:1.6;">
+                                                    检测到该 Team 在高峰期（10:00-16:00）有 127 次批量翻译任务调用，总消耗 ¥1,840。<br/>
+                                                    <b>建议：</b>将此类非实时任务调度至 22:00 后执行，预计每月可节省 <span style="color:#16a34a;font-weight:600;">¥920（50%）</span>。
+                                                </div>
+                                                <div style="margin-top:8px;display:flex;gap:8px;">
+                                                    <button class="btn btn-primary" style="height:28px;font-size:12px;padding:0 10px;">查看调用详情</button>
+                                                    <button class="btn" style="height:28px;font-size:12px;padding:0 10px;">稍后提醒</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style="padding:12px;background:#eff6ff;border-radius:8px;margin-bottom:10px;border:1px solid #bfdbfe;">
+                                        <div style="display:flex;gap:10px;align-items:start;">
+                                            <div style="font-size:18px;">⚡</div>
+                                            <div style="flex:1;">
+                                                <div style="font-weight:600;color:#1e40af;margin-bottom:4px;">缓存命中率提升机会</div>
+                                                <div style="font-size:13px;color:#1e3a8a;line-height:1.6;">
+                                                    bot-ci 的 CI 构建任务重复 prompt 占比 63%，但缓存命中率仅 12%。<br/>
+                                                    <b>建议：</b>开启 Prompt Cache 功能，相同上下文可节省 <span style="color:#16a34a;font-weight:600;">80% 输入成本</span>。
+                                                </div>
+                                                <div style="margin-top:8px;">
+                                                    <span class="link" style="font-size:12px;">→ 查看缓存优化指南</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style="padding:12px;background:#f5f3ff;border-radius:8px;border:1px solid #ddd6fe;">
+                                        <div style="display:flex;gap:10px;align-items:start;">
+                                            <div style="font-size:18px;">📈</div>
+                                            <div style="flex:1;">
+                                                <div style="font-weight:600;color:#5b21b6;margin-bottom:4px;">模型切换建议</div>
+                                                <div style="font-size:13px;color:#6b21a8;line-height:1.6;">
+                                                    zhangsan 使用 gpt-4o 进行简单代码补全，单次成本 ¥0.024。<br/>
+                                                    <b>建议：</b>此类场景可切换至 gpt-4o-mini，效果相近且成本降低 <span style="color:#16a34a;font-weight:600;">85%</span>。
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="grid-2">
                             <div class="card">
                                 <div class="page-header">
