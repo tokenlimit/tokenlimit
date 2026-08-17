@@ -1,0 +1,69 @@
+# =====================================================
+# TokenLimit 单机模式配置 (内嵌 Derby + 无 Redis)
+# 参考 Nacos 单机版方案：纯 Java 嵌入式数据库，零配置启动
+# =====================================================
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: tokenlimit-server
+  threads:
+    virtual:
+      enabled: true
+  
+  # ===== Derby 内嵌数据库配置 =====
+  datasource:
+    driver-class-name: org.apache.derby.jdbc.EmbeddedDriver
+    url: jdbc:derby:${user.home}/.tokenlimit/derby-data;create=true
+    username: APP
+    password: APP
+  
+  # ===== 单机模式禁用 Redis (使用内存 Map 替代配额存储) =====
+  data:
+    redis:
+      # 不配置 Redis 连接，使用内存存储
+      enabled: false
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.tokenlimit.server.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    # 生产环境关闭 SQL 日志
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+  global-config:
+    db-config:
+      id-type: auto
+
+logging:
+  level:
+    com.tokenlimit: info
+    org.apache.derby: warn
+  file:
+    name: ${user.home}/.tokenlimit/logs/tokenlimit.log
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# Derby 系统属性配置
+derby:
+  stream:
+    error:
+      file: ${user.home}/.tokenlimit/logs/derby.log
+
+tokenlimit:
+  # 单机模式关闭预计算（无 Redis）
+  quota-precompute-enabled: false
+  # 使用简单内存配额检查
+  quota-chain: none
+  login-max-fails: 5
+  login-lock-seconds: 1800
+  hash-pepper: ${HASH_PEPPER:change-me-in-production}
+  jwt:
+    secret: ${JWT_SECRET:change-me-in-production-must-be-32-bytes-min}
+    issuer: tokenlimit-server
+    expire-seconds: 28800
+  admin:
+    username: ${ADMIN_USERNAME:admin}
+    password: ${ADMIN_PASSWORD:admin123}

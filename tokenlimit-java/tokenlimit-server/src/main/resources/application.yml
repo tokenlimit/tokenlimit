@@ -8,16 +8,22 @@ spring:
   threads:
     virtual:
       enabled: true
+  profiles:
+    active: dev  # 默认开发环境，生产环境通过 -Dspring.profiles.active=prod 切换
+  
+  # ===== 数据源配置：支持 MySQL 外部数据库和 Derby 内嵌数据库自动切换 =====
+  # 单机模式 (-m standalone) 使用 Derby 内嵌数据库，集群模式使用 MySQL
   datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://127.0.0.1:3306/tokenlimit?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai
-    username: root
-    password: root
+    # Derby 驱动（单机模式自动启用）
+    driver-class-name: ${db.driver:org.apache.derby.jdbc.EmbeddedDriver}
+    url: ${db.url:jdbc:derby:${user.home}/.tokenlimit/derby-data;create=true}
+    username: ${db.username:APP}
+    password: ${db.password:APP}
   data:
     redis:
-      host: 127.0.0.1
-      port: 6379
-      database: 0
+      host: ${redis.host:127.0.0.1}
+      port: ${redis.port:6379}
+      database: ${redis.database:0}
       timeout: 2000ms
       lettuce:
         pool:
@@ -38,6 +44,9 @@ mybatis-plus:
 logging:
   level:
     com.tokenlimit: info
+  # Derby 日志重定向，防止污染业务日志
+  file:
+    name: ${user.home}/.tokenlimit/logs/tokenlimit.log
 
 tokenlimit:
   # Redis key 前缀
