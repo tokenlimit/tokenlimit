@@ -23,62 +23,79 @@ TokenLimit 是一个专注于企业大模型调用治理的网关服务，提供
 
 ## 🚀 快速开始
 
-### 前置条件
+### 方式一：单机模式（零依赖，推荐开发测试）
+
+无需安装 MySQL 和 Redis，一键启动体验！
+
+**Linux/Mac:**
+```bash
+cd tokenlimit-java/scripts
+./startup.sh
+```
+
+**Windows:**
+```cmd
+cd tokenlimit-java\scripts
+startup.bat
+```
+
+启动成功后访问：
+- 健康检查：http://localhost:8080/health
+- API 文档：http://localhost:8080/swagger-ui.html
+- 管理控制台：http://localhost:8080/console/
+
+停止服务：
+```bash
+./shutdown.sh    # Linux/Mac
+shutdown.bat     # Windows
+```
+
+### 方式二：生产模式（MySQL + Redis）
+
+**Linux/Mac:**
+```bash
+export TL_DB_MODE=mysql
+export TL_DB_HOST=localhost
+export TL_DB_PORT=3306
+export TL_DB_NAME=tokenlimit
+export TL_DB_USER=root
+export TL_DB_PASSWORD=your_password
+
+export TL_REDIS_MODE=external
+export TL_REDIS_HOST=localhost
+export TL_REDIS_PORT=6379
+export TL_REDIS_PASSWORD=
+
+cd tokenlimit-java/scripts
+./startup.sh
+```
+
+**Windows:**
+```cmd
+set TL_DB_MODE=mysql
+set TL_DB_HOST=localhost
+set TL_DB_PORT=3306
+set TL_DB_NAME=tokenlimit
+set TL_DB_USER=root
+set TL_DB_PASSWORD=your_password
+
+set TL_REDIS_MODE=external
+set TL_REDIS_HOST=localhost
+set TL_REDIS_PORT=6379
+set TL_REDIS_PASSWORD=
+
+cd tokenlimit-java\scripts
+startup.bat
+```
+
+### 方式三：Docker Compose（推荐生产环境）
 
 ```bash
-# 安装 JDK 21
-java -version
-
-# 安装 Maven
-mvn -version
-
-# 启动 MySQL 和 Redis
-docker-compose up -d mysql redis
+cd deploy
+docker-compose up -d
 ```
 
-### 数据库初始化
-
-```bash
-# 执行迁移脚本
-mysql -u root -p tokenlimit < deploy/migration/V1__init_schema.sql
-mysql -u root -p tokenlimit < deploy/migration/V5.5__add_peak_off_peak_pricing.sql
-```
-
-### 配置应用
-
-编辑 `src/main/resources/application.yml`:
-
-```yaml
-spring:
-  datasource:
-    url: jdbc:mysql://localhost:3306/tokenlimit?useSSL=false&serverTimezone=UTC
-    username: root
-    password: your_password
-  data:
-    redis:
-      host: localhost
-      port: 6379
-
-tokenlimit:
-  jwt:
-    secret: your-secret-key-change-in-production
-    expiration: 86400000  # 24 hours
-```
-
-### 编译运行
-
-```bash
-# 编译打包
-mvn clean package -DskipTests
-
-# 运行应用
-java -jar target/tokenlimit-server-*.jar
-
-# 或使用 Maven 直接运行
-mvn spring-boot:run
-```
-
-访问 `http://localhost:8080/health` 验证服务健康状态。
+详见 [Docker 部署指南](#-docker-部署)。
 
 ## 📁 项目结构
 

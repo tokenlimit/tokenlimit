@@ -1,48 +1,81 @@
 ```
-# Environment
-.env
-.env.local
-.env.*
-
 # Dependencies
-node_modules/
-.venv/
-venv/
-__pycache__/
-.mypy_cache/
-.pytest_cache/
 target/
-.gradle/
 
-# Build artifacts
-dist/
-build/
-*.pyc
-*.class
-*.o
-*.exe
-*.dll
-*.so
-*.a
-*.obj
-*.out
-
-# Editor/IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Logs and temp files
+*.log
 *.tmp
 
-# Logs
-*.log
+# Environment
+.env
+*.env
+.env.local
 
-# Coverage
-coverage/
-htmlcov/
+# Editors
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.class
+*.jar
+*.war
+*.ear
+*.so
+*.dll
+*.exe
+*.out
+
+# Python related (if any Python files exist in project)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
 .coverage
-
-# System
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git/modules/
+*.sublime-workspace
+.hg/
+.hgignore
+.hgcheck
+.hgsigs
+mkdocs.yml
+sitecustomize.py
+.venv.bak/
+.venv/
+venv.bak/
+venv/
+ENV/
+env.bak/
+.env.bak/
+.env.dev
+.env.prod
+.env.test
+.env.testing
+.env.staging
+.env.production
+.env.development
+.env.local
+.env.backup
+*.env
+.env~
+.env.local~
+.env.backup~
 .DS_Store
 Thumbs.db
 ```
