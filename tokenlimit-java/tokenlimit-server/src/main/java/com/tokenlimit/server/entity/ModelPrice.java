@@ -1,0 +1,173 @@
+package com.tokenlimit.server.entity;
+
+import com.baomidou.mybatisplus.annotation.TableName;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+
+/**
+ * 模型价格实体（价格管理 / 计费基准）.
+ * <p>价格单位为每 1 个 Token 的单价（避免计算时频繁除以 1000000）；
+ * 修改价格只影响新调用——usage_log 已固化为计费快照，历史费用不可变。</p>
+ * status: ENABLED / DISABLED
+ * 
+ * V5.5 峰谷定价策略：
+ * - pricing_type: FLAT(固定定价) / PEAK_OFF_PEAK(峰谷定价)
+ * - peak_multiplier: 高峰时段价格系数 (默认 1.0)
+ * - off_peak_multiplier: 低谷时段价格系数 (如 0.5 表示 5 折)
+ * - off_peak_start: 低谷开始时间 (如 22:00)
+ * - off_peak_end: 低谷结束时间 (如 次日 08:00，支持跨天)
+ */
+@TableName("tl_model_price")
+public class ModelPrice extends BaseEntity {
+
+    private String provider;
+    private String model;
+    /** 输入单价（每 Token） */
+    private BigDecimal inputPricePerToken;
+    /** 输出单价（每 Token） */
+    private BigDecimal outputPricePerToken;
+    /** 缓存读取单价（Anthropic Prompt Caching 等，预留） */
+    private BigDecimal cacheReadPricePerToken;
+    /** 缓存写入单价（预留） */
+    private BigDecimal cacheWritePricePerToken;
+    /** 币种：USD / CNY */
+    private String currency;
+    private String status;
+    /** 生效时间（记录最近一次改价时间） */
+    private LocalDateTime effectiveAt;
+    private String createdBy;
+    
+    // ========== V5.5 峰谷定价策略字段 ==========
+    /** 定价类型：FLAT(固定定价), PEAK_OFF_PEAK(峰谷定价) */
+    private String pricingType;
+    /** 高峰时段价格系数 (如 1.0) */
+    private BigDecimal peakMultiplier;
+    /** 低谷时段价格系数 (如 0.50 表示 5 折) */
+    private BigDecimal offPeakMultiplier;
+    /** 低谷开始时间 (如 22:00:00) */
+    private LocalTime offPeakStart;
+    /** 低谷结束时间 (如 08:00:00，支持跨天) */
+    private LocalTime offPeakEnd;
+
+    public String getProvider() {
+        return provider;
+    }
+
+    public void setProvider(String provider) {
+        this.provider = provider;
+    }
+
+    public String getModel() {
+        return model;
+    }
+
+    public void setModel(String model) {
+        this.model = model;
+    }
+
+    public BigDecimal getInputPricePerToken() {
+        return inputPricePerToken;
+    }
+
+    public void setInputPricePerToken(BigDecimal inputPricePerToken) {
+        this.inputPricePerToken = inputPricePerToken;
+    }
+
+    public BigDecimal getOutputPricePerToken() {
+        return outputPricePerToken;
+    }
+
+    public void setOutputPricePerToken(BigDecimal outputPricePerToken) {
+        this.outputPricePerToken = outputPricePerToken;
+    }
+
+    public BigDecimal getCacheReadPricePerToken() {
+        return cacheReadPricePerToken;
+    }
+
+    public void setCacheReadPricePerToken(BigDecimal cacheReadPricePerToken) {
+        this.cacheReadPricePerToken = cacheReadPricePerToken;
+    }
+
+    public BigDecimal getCacheWritePricePerToken() {
+        return cacheWritePricePerToken;
+    }
+
+    public void setCacheWritePricePerToken(BigDecimal cacheWritePricePerToken) {
+        this.cacheWritePricePerToken = cacheWritePricePerToken;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public LocalDateTime getEffectiveAt() {
+        return effectiveAt;
+    }
+
+    public void setEffectiveAt(LocalDateTime effectiveAt) {
+        this.effectiveAt = effectiveAt;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(String createdBy) {
+        this.createdBy = createdBy;
+    }
+
+    public String getPricingType() {
+        return pricingType;
+    }
+
+    public void setPricingType(String pricingType) {
+        this.pricingType = pricingType;
+    }
+
+    public BigDecimal getPeakMultiplier() {
+        return peakMultiplier;
+    }
+
+    public void setPeakMultiplier(BigDecimal peakMultiplier) {
+        this.peakMultiplier = peakMultiplier;
+    }
+
+    public BigDecimal getOffPeakMultiplier() {
+        return offPeakMultiplier;
+    }
+
+    public void setOffPeakMultiplier(BigDecimal offPeakMultiplier) {
+        this.offPeakMultiplier = offPeakMultiplier;
+    }
+
+    public LocalTime getOffPeakStart() {
+        return offPeakStart;
+    }
+
+    public void setOffPeakStart(LocalTime offPeakStart) {
+        this.offPeakStart = offPeakStart;
+    }
+
+    public LocalTime getOffPeakEnd() {
+        return offPeakEnd;
+    }
+
+    public void setOffPeakEnd(LocalTime offPeakEnd) {
+        this.offPeakEnd = offPeakEnd;
+    }
+}

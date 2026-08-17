@@ -1,0 +1,75 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: tokenlimit-server
+  # v1.4：虚拟线程（JDK21 平台线程 → 虚拟线程，高并发 IO 密集场景吞吐提升）
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/tokenlimit?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 0
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.tokenlimit.server.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+
+logging:
+  level:
+    com.tokenlimit: info
+
+tokenlimit:
+  # Redis key 前缀
+  redis-prefix: tokenlimit:quota
+  # 预计算拦截开关：true=调用大模型前按预估量原子预扣（真实余额 - 预扣值 > 0 才放行），结束后回滚预扣、按真实用量扣减；false=仅判断余额不预扣，并发下最后几次请求可能同时放行
+  quota-precompute-enabled: true
+  # 配额拦截责任链（按顺序执行，任一拦截即拒绝）：team-balance=团队余额 / user-balance=个人余额 / usage-period=周期用量（月/周/日/时/分，含每次请求限次）
+  quota-chain: team-balance,user-balance,usage-period
+  # check 上下文保留时间（秒），report 需在此时间内上报；超时未上报的预扣残留随周期 key 过期自动清理
+  check-context-ttl-seconds: 3600
+  # 单次调用预估 token 上限，超出则拒绝（防止异常大额预扣）
+  max-estimated-tokens: 1000000
+  # 预估偏差自学习（PRD 8.3 动态化）：按模型统计 真实值/预估值 的 EMA 均值，无返回值时用 est×均值估算真实消耗
+  # 异常检测：样本≥estimation-min-samples 时 ratio 超过模型均值 anomaly-ratio-factor 倍判异常；不足时用 anomaly-deviation-threshold（50%）兑底
+  anomaly-ratio-factor: 2.0
+  estimation-min-samples: 20
+  anomaly-deviation-threshold: 0.5
+  # 登录连续失败达到该次数后锁定
+  login-max-fails: 5
+  # 登录锁定时间（秒）
+  login-lock-seconds: 1800
+  # API Key secret 哈希服务端密钥（pepper），生产环境务必替换默认值
+  hash-pepper: tokenlimit-dev-only-hash-pepper-change-me-in-production
+  # Admin 端 JWT 配置（无状态会话）
+  jwt:
+    # HS256 签名密钥（≥32 字节；支持 Base64 或纯文本），生产环境务必替换
+    secret: tokenlimit-dev-only-secret-key-change-me-in-production
+    # 签发者
+    issuer: tokenlimit-server
+    # 令牌有效期（秒），默认 8 小时
+    expire-seconds: 28800
+  # 管理端登录（MVP 阶段静态账号）
+  admin:
+    username: admin
+    password: admin123
