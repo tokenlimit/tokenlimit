@@ -169,8 +169,10 @@
             <el-option v-for="t in teams" :key="t.teamCode" :label="t.teamCode" :value="t.teamCode" />
           </el-select>
         </el-form-item>
-        <el-form-item label="API Base URL" prop="apiBaseUrl">
-          <el-input v-model="credForm.apiBaseUrl" placeholder="如：https://api.openai.com" />
+        <el-form-item label="自定义 Base URL" prop="apiBaseUrl">
+          <el-input v-model="credForm.apiBaseUrl" placeholder="留空则使用官方默认地址" clearable>
+            <template #prepend>https://</template>
+          </el-input>
         </el-form-item>
         <el-form-item label="API Key" prop="apiKey">
           <el-input v-model="credForm.apiKey" type="password" show-password :placeholder="credForm.id ? '留空则不修改（密钥不回显）' : '输入供应商 API Key'" />

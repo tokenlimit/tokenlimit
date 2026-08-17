@@ -1,3 +1,33 @@
-The modified file `"design/TokenLimit` appears to be a source/config file based on its extension-less name in a design directory. Since it's not a build artifact, dependency, or temporary file, no additional entries need to be added to the .gitignore file.
+```
+# Migration backup files
+deploy/migration/*.sql.bak
+deploy/migration/*.sql~
 
-(empty)
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build artifacts
+dist/
+build/
+target/
+```
