@@ -1103,12 +1103,16 @@ model    = "deepseek-chat"</div>
                     <div id="usage" class="page">
                         <div class="page-header">
                             <div>
-                                <div class="page-title">Usage 用量统计</div>
+                                <div class="page-title">调用明细与用量统计</div>
                                 <div class="page-desc">
-                                    调用日志记录预估值（jtokkit）和真实值（厂商返回）。usage_source 标记数据来源，anomaly 标记偏差异常。
+                                    查看 API 调用详细记录，支持按团队、用户、模型、Provider 多维度筛选。可导出 CSV/Excel 用于线下对账。
+                                    调用日志记录预估值（jtokkit）和真实值（厂商返回），anomaly 标记偏差异常（>50%）。
                                 </div>
                             </div>
-                            <button class="btn">导出 CSV</button>
+                            <div style="display: flex; gap: 12px;">
+                                <button class="btn" onclick="exportUsageDetail()">📥 导出调用明细</button>
+                                <button class="btn" onclick="exportCostReport()">📥 导出成本报表</button>
+                            </div>
                         </div>
 
                         <div class="table-card">
@@ -1834,6 +1838,20 @@ model    = "deepseek-chat"</div>
             if (menuItem) {
                 menuItem.classList.add('active');
             }
+        }
+
+        // 导出调用明细（CSV/Excel）
+        function exportUsageDetail() {
+            alert('正在生成调用明细文件...\n\n包含字段：请求时间，TraceID，用户，团队，模型，输入 Token，输出 Token，总 Token，预估耗时，实际耗时，状态码，Provider\n\n数据量 > 1 万条时将异步生成，请稍后在下载中心获取文件。');
+            // 实际实现：调用后端 API /api/admin/usage/export-detail?startDate=xxx&endDate=xxx&teamId=xxx&userId=xxx&model=xxx
+            // 后端返回下载链接或任务 ID
+        }
+
+        // 导出成本报表（按团队/个人汇总）
+        function exportCostReport() {
+            alert('正在生成成本报表...\n\n包含字段：日期，团队，模型，调用次数，总 Token，总金额 (元)\n\n支持按团队、个人维度聚合，用于内部成本分摊。');
+            // 实际实现：调用后端 API /api/admin/usage/export-cost-report?dimension=team|user&startDate=xxx&endDate=xxx
+            // 后端返回下载链接或任务 ID
         }
 
         function switchTab(tabEl, contentId) {
