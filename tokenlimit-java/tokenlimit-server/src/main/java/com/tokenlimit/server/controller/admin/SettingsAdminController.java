@@ -19,7 +19,7 @@ import java.util.Map;
  * 管理端：系统设置（键值对）.
  */
 @RestController
-@RequestMapping("/api/v1/admin/settings")
+@RequestMapping("/api/admin/settings")
 @PreAuthorize("hasRole('ADMIN')")
 public class SettingsAdminController {
 

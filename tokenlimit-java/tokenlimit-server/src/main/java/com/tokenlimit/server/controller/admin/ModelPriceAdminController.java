@@ -29,7 +29,7 @@ import java.time.LocalDateTime;
  * 管理端：模型价格管理（对账中心 - 价格管理，PRD Phase 4）.
  */
 @RestController
-@RequestMapping("/api/v1/admin/model-prices")
+@RequestMapping("/api/admin/model-prices")
 @PreAuthorize("hasRole('ADMIN')")
 public class ModelPriceAdminController {
 

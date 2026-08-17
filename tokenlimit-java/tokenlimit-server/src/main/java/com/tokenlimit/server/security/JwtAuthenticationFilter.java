@@ -39,9 +39,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     /** 强制改密状态下仍允许访问的路径 */
     private static final String[] MUST_CHANGE_PASSWORD_ALLOWED = {
-            "/api/v1/admin/auth/change-password",
-            "/api/v1/admin/auth/profile",
-            "/api/v1/admin/auth/logout"
+            "/api/admin/auth/change-password",
+            "/api/admin/auth/profile",
+            "/api/admin/auth/logout"
     };
 
     private final JwtTokenProvider jwtTokenProvider;

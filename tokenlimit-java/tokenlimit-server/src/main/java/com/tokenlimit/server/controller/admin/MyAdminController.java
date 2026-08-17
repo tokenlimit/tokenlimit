@@ -40,7 +40,7 @@ import java.util.Map;
  * used = MySQL 聚合真实用量，remain = limit - used）；报表费用基于计费快照 SUM(cost)。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/my")
+@RequestMapping("/api/admin/my")
 @PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN', 'USER')")
 public class MyAdminController {
 

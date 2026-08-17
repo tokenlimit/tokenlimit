@@ -98,27 +98,27 @@ export function listModelPrices(params?: {
   model?: string
   status?: string
 }): Promise<PageResult<ModelPrice>> {
-  return httpGet<PageResult<ModelPrice>>('/v1/admin/model-prices', params)
+  return httpGet<PageResult<ModelPrice>>('/api/admin/model-prices', params)
 }
 
 export function getModelPrice(id: number): Promise<ModelPrice> {
-  return httpGet<ModelPrice>(`/v1/admin/model-prices/${id}`)
+  return httpGet<ModelPrice>(`/api/admin/model-prices/${id}`)
 }
 
 export function createModelPrice(data: ModelPrice): Promise<ModelPrice> {
-  return httpPost<ModelPrice>('/v1/admin/model-prices', data)
+  return httpPost<ModelPrice>('/api/admin/model-prices', data)
 }
 
 export function updateModelPrice(id: number, data: ModelPrice): Promise<ModelPrice> {
-  return httpPut<ModelPrice>(`/v1/admin/model-prices/${id}`, data)
+  return httpPut<ModelPrice>(`/api/admin/model-prices/${id}`, data)
 }
 
 export function deleteModelPrice(id: number): Promise<void> {
-  return httpDelete<void>(`/v1/admin/model-prices/${id}`)
+  return httpDelete<void>(`/api/admin/model-prices/${id}`)
 }
 
 export function changeModelPriceStatus(id: number, status: string): Promise<void> {
-  return httpPut<void>(`/v1/admin/model-prices/${id}/status`, undefined, { status })
+  return httpPut<void>(`/api/admin/model-prices/${id}/status`, undefined, { status })
 }
 
 // ---- 供应商账单 ----
@@ -130,27 +130,27 @@ export function listVendorBills(params?: {
   model?: string
   status?: string
 }): Promise<PageResult<VendorBill>> {
-  return httpGet<PageResult<VendorBill>>('/v1/admin/vendor-bills', params)
+  return httpGet<PageResult<VendorBill>>('/api/admin/vendor-bills', params)
 }
 
 export function getVendorBill(id: number): Promise<VendorBill> {
-  return httpGet<VendorBill>(`/v1/admin/vendor-bills/${id}`)
+  return httpGet<VendorBill>(`/api/admin/vendor-bills/${id}`)
 }
 
 export function createVendorBill(data: VendorBill): Promise<VendorBill> {
-  return httpPost<VendorBill>('/v1/admin/vendor-bills', data)
+  return httpPost<VendorBill>('/api/admin/vendor-bills', data)
 }
 
 export function batchCreateVendorBills(data: VendorBill[]): Promise<number> {
-  return httpPost<number>('/v1/admin/vendor-bills/batch', data)
+  return httpPost<number>('/api/admin/vendor-bills/batch', data)
 }
 
 export function updateVendorBill(id: number, data: VendorBill): Promise<VendorBill> {
-  return httpPut<VendorBill>(`/v1/admin/vendor-bills/${id}`, data)
+  return httpPut<VendorBill>(`/api/admin/vendor-bills/${id}`, data)
 }
 
 export function deleteVendorBill(id: number): Promise<void> {
-  return httpDelete<void>(`/v1/admin/vendor-bills/${id}`)
+  return httpDelete<void>(`/api/admin/vendor-bills/${id}`)
 }
 
 // ---- 对账任务 ----
@@ -161,15 +161,15 @@ export function listReconcileTasks(params?: {
   provider?: string
   status?: string
 }): Promise<PageResult<ReconcileTask>> {
-  return httpGet<PageResult<ReconcileTask>>('/v1/admin/reconciles', params)
+  return httpGet<PageResult<ReconcileTask>>('/api/admin/reconciles', params)
 }
 
 export function getReconcileStats(): Promise<ReconcileStats> {
-  return httpGet<ReconcileStats>('/v1/admin/reconciles/stats')
+  return httpGet<ReconcileStats>('/api/admin/reconciles/stats')
 }
 
 export function getReconcileTask(id: number): Promise<ReconcileTask> {
-  return httpGet<ReconcileTask>(`/v1/admin/reconciles/${id}`)
+  return httpGet<ReconcileTask>(`/api/admin/reconciles/${id}`)
 }
 
 export function createReconcileTask(params: {
@@ -177,11 +177,11 @@ export function createReconcileTask(params: {
   provider: string
   remark?: string
 }): Promise<ReconcileTask> {
-  return httpPost<ReconcileTask>('/v1/admin/reconciles', undefined, params)
+  return httpPost<ReconcileTask>('/api/admin/reconciles', undefined, params)
 }
 
 export function executeReconcileTask(id: number): Promise<ReconcileTask> {
-  return httpPost<ReconcileTask>(`/v1/admin/reconciles/${id}/execute`)
+  return httpPost<ReconcileTask>(`/api/admin/reconciles/${id}/execute`)
 }
 
 export function listReconcileItems(
@@ -193,13 +193,13 @@ export function listReconcileItems(
     model?: string
   }
 ): Promise<PageResult<ReconcileItem>> {
-  return httpGet<PageResult<ReconcileItem>>(`/v1/admin/reconciles/${id}/items`, params)
+  return httpGet<PageResult<ReconcileItem>>(`/api/admin/reconciles/${id}/items`, params)
 }
 
 export function changeReconcileItemStatus(id: number, status: string, remark?: string): Promise<ReconcileItem> {
-  return httpPut<ReconcileItem>(`/v1/admin/reconciles/items/${id}/status`, undefined, { status, remark })
+  return httpPut<ReconcileItem>(`/api/admin/reconciles/items/${id}/status`, undefined, { status, remark })
 }
 
 export function deleteReconcileTask(id: number): Promise<void> {
-  return httpDelete<void>(`/v1/admin/reconciles/${id}`)
+  return httpDelete<void>(`/api/admin/reconciles/${id}`)
 }

@@ -19,20 +19,20 @@ export interface MetaAll {
 }
 
 export function getMetaAll(): Promise<MetaAll> {
-  return httpGet<MetaAll>('/v1/admin/meta/all')
+  return httpGet<MetaAll>('/api/admin/meta/all')
 }
 
 export function getTeams(params?: { teamType?: string }): Promise<Team[]> {
-  return httpGet<Team[]>('/v1/admin/meta/teams', params)
+  return httpGet<Team[]>('/api/admin/meta/teams', params)
 }
 
 export function getApiKeys(params?: {
   teamCode?: string
   userCode?: string
 }): Promise<ApiKey[]> {
-  return httpGet<ApiKey[]>('/v1/admin/meta/api-keys', params)
+  return httpGet<ApiKey[]>('/api/admin/meta/api-keys', params)
 }
 
 export function getUsers(params?: { teamCode?: string }): Promise<User[]> {
-  return httpGet<User[]>('/v1/admin/meta/users', params)
+  return httpGet<User[]>('/api/admin/meta/users', params)
 }

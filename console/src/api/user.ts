@@ -42,29 +42,29 @@ export function listUsers(params?: {
   role?: string
   status?: string
 }): Promise<PageResult<User>> {
-  return httpGet<PageResult<User>>('/v1/admin/users', params)
+  return httpGet<PageResult<User>>('/api/admin/users', params)
 }
 
 export function getUser(id: number): Promise<User> {
-  return httpGet<User>(`/v1/admin/users/${id}`)
+  return httpGet<User>(`/api/admin/users/${id}`)
 }
 
 export function createUser(data: CreateUserParams): Promise<User> {
-  return httpPost<User>('/v1/admin/users', data)
+  return httpPost<User>('/api/admin/users', data)
 }
 
 export function updateUser(id: number, data: Partial<User>): Promise<User> {
-  return httpPut<User>(`/v1/admin/users/${id}`, data)
+  return httpPut<User>(`/api/admin/users/${id}`, data)
 }
 
 export function deleteUser(id: number): Promise<void> {
-  return httpDelete<void>(`/v1/admin/users/${id}`)
+  return httpDelete<void>(`/api/admin/users/${id}`)
 }
 
 export function changeUserStatus(id: number, status: string): Promise<void> {
-  return httpPut<void>(`/v1/admin/users/${id}/status`, undefined, { status })
+  return httpPut<void>(`/api/admin/users/${id}/status`, undefined, { status })
 }
 
 export function resetUserPassword(id: number): Promise<{ username: string; password: string }> {
-  return httpPost<{ username: string; password: string }>(`/v1/admin/users/${id}/reset-password`)
+  return httpPost<{ username: string; password: string }>(`/api/admin/users/${id}/reset-password`)
 }

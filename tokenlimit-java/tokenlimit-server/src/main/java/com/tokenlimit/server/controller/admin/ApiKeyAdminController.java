@@ -42,7 +42,7 @@ import java.util.UUID;
  * secret 明文仅创建/重置时返回一次，库中仅存哈希。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/api-keys")
+@RequestMapping("/api/admin/api-keys")
 @PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN', 'USER')")
 public class ApiKeyAdminController {
 

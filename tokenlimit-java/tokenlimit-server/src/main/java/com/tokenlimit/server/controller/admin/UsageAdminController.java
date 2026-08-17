@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>ADMIN/TEAM_ADMIN 查看全部；USER 仅查看自己的用量（自动按 userCode 过滤）。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/usages")
+@RequestMapping("/api/admin/usages")
 @PreAuthorize("hasAnyRole('ADMIN', 'TEAM_ADMIN', 'USER')")
 public class UsageAdminController {
 

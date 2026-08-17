@@ -35,7 +35,7 @@ import java.util.Map;
  * 临时锁定（Redis 计数，多实例共享）。</p>
  */
 @RestController
-@RequestMapping("/api/v1/admin/auth")
+@RequestMapping("/api/admin/auth")
 public class AuthAdminController {
 
     private final UserMapper userMapper;

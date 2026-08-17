@@ -19,25 +19,25 @@ export function listTeams(params?: {
   keyword?: string
   status?: string
 }): Promise<PageResult<Team>> {
-  return httpGet<PageResult<Team>>('/v1/admin/teams', params)
+  return httpGet<PageResult<Team>>('/api/admin/teams', params)
 }
 
 export function getTeam(id: number): Promise<Team> {
-  return httpGet<Team>(`/v1/admin/teams/${id}`)
+  return httpGet<Team>(`/api/admin/teams/${id}`)
 }
 
 export function createTeam(data: Team): Promise<Team> {
-  return httpPost<Team>('/v1/admin/teams', data)
+  return httpPost<Team>('/api/admin/teams', data)
 }
 
 export function updateTeam(id: number, data: Team): Promise<Team> {
-  return httpPut<Team>(`/v1/admin/teams/${id}`, data)
+  return httpPut<Team>(`/api/admin/teams/${id}`, data)
 }
 
 export function deleteTeam(id: number): Promise<void> {
-  return httpDelete<void>(`/v1/admin/teams/${id}`)
+  return httpDelete<void>(`/api/admin/teams/${id}`)
 }
 
 export function changeTeamStatus(id: number, status: string): Promise<void> {
-  return httpPut<void>(`/v1/admin/teams/${id}/status`, undefined, { status })
+  return httpPut<void>(`/api/admin/teams/${id}/status`, undefined, { status })
 }

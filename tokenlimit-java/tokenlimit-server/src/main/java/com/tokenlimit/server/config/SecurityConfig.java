@@ -60,10 +60,10 @@ public class SecurityConfig {
                 .logout(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
                         // 公开端点：健康检查 / 登录 / OpenAI Compatible Proxy 网关 / 错误转发
-                        .requestMatchers("/api/v1/health", "/api/v1/admin/auth/login",
+                        .requestMatchers("/health", "/api/admin/auth/login",
                                 "/v1/**", "/error").permitAll()
                         // 管理端数据接口全部要求认证（未认证 → 401）
-                        .requestMatchers("/api/**").authenticated()
+                        .requestMatchers("/api/admin/**").authenticated()
                         // 其余放行：前端静态资源（index.html / assets/**）与 SPA 路由
                         .anyRequest().permitAll())
                 .exceptionHandling(eh -> eh
