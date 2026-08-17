@@ -54,9 +54,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         // 数据面接口不参与 Web 会话认证：
         // - /v1/** OpenAI Compatible 网关 → OpenAiApiKeyAuthenticationFilter（API Key 认证）
-        // - /api/v1/client/** 客户端数据面接口（V4 遗留）→ API Key 自校验
         String uri = request.getRequestURI();
-        return uri != null && (uri.startsWith("/v1/") || uri.startsWith("/api/v1/client/"));
+        return uri != null && uri.startsWith("/v1/");
     }
 
     @Override
