@@ -18,6 +18,17 @@ export interface ModelPrice {
   createdBy?: string
   createdAt?: string
   updatedAt?: string
+  // V5.5 峰谷定价策略字段
+  /** 定价类型：FLAT(固定定价), PEAK_OFF_PEAK(峰谷定价) */
+  pricingType?: string
+  /** 高峰时段价格系数 (如 1.0) */
+  peakMultiplier?: number
+  /** 低谷时段价格系数 (如 0.50 表示 5 折) */
+  offPeakMultiplier?: number
+  /** 低谷开始时间 (如 "22:00:00") */
+  offPeakStart?: string
+  /** 低谷结束时间 (如 "08:00:00"，支持跨天) */
+  offPeakEnd?: string
 }
 
 export interface VendorBill {

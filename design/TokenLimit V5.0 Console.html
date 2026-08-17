@@ -405,6 +405,7 @@
 
                 <div class="menu-group-title" data-roles="ADMIN">平台管理</div>
                 <div class="menu-item" data-page="provider" data-roles="ADMIN" onclick="showPage('provider', this)">🤖 Provider 管理</div>
+                <div class="menu-item" data-page="modelprice" data-roles="ADMIN" onclick="showPage('modelprice', this)">💰 模型价格管理</div>
 
                 <div class="menu-group-title" data-roles="ADMIN,TEAM_ADMIN">资源管理</div>
                 <div class="menu-item" data-page="team" data-roles="ADMIN" onclick="showPage('team', this)">👥 Team</div>
@@ -676,6 +677,103 @@ model    = "deepseek-chat"</div>
                                 <div class="page-btn">2</div>
                                 <div class="page-btn">下一页</div>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Model Price -->
+                    <div id="modelprice" class="page">
+                        <div class="page-header">
+                            <div>
+                                <div class="page-title">模型价格管理</div>
+                                <div class="page-desc">配置大模型 Token 单价，支持固定定价和峰谷定价策略。修改价格只影响新调用，历史账单不会变更。</div>
+                            </div>
+                            <button class="btn btn-primary" onclick="openModal('addPriceModal')">添加价格配置</button>
+                        </div>
+
+                        <div class="table-card">
+                            <div class="table-toolbar">
+                                <div class="filters">
+                                    <input class="input" placeholder="搜索 Provider/ 模型" />
+                                    <select class="select">
+                                        <option>状态：全部</option>
+                                        <option>ENABLED</option>
+                                        <option>DISABLED</option>
+                                    </select>
+                                    <select class="select">
+                                        <option>定价类型：全部</option>
+                                        <option>FLAT</option>
+                                        <option>PEAK_OFF_PEAK</option>
+                                    </select>
+                                </div>
+                                <button class="btn">刷新</button>
+                            </div>
+
+                            <table>
+                                <tr>
+                                    <th>Provider</th>
+                                    <th>模型</th>
+                                    <th>输入单价 (每 Token)</th>
+                                    <th>输出单价 (每 Token)</th>
+                                    <th>缓存读单价</th>
+                                    <th>定价类型</th>
+                                    <th>峰谷系数</th>
+                                    <th>低谷时段</th>
+                                    <th>币种</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                                <tr>
+                                    <td><span class="tag tag-info">DeepSeek</span></td>
+                                    <td><span class="code">deepseek-chat</span></td>
+                                    <td>¥0.000002</td>
+                                    <td>¥0.000008</td>
+                                    <td>-</td>
+                                    <td><span class="tag tag-default">FLAT</span></td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td>CNY</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">编辑</span> | <span class="link">禁用</span></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="tag tag-info">OpenAI</span></td>
+                                    <td><span class="code">gpt-4o</span></td>
+                                    <td>$0.0000025</td>
+                                    <td>$0.000010</td>
+                                    <td>$0.00000125</td>
+                                    <td><span class="tag tag-info">PEAK_OFF_PEAK</span></td>
+                                    <td><span class="code">高峰 1.0 / 低谷 0.5</span></td>
+                                    <td><span class="code">22:00-08:00</span></td>
+                                    <td>USD</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">编辑</span> | <span class="link">禁用</span></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="tag tag-info">Qwen</span></td>
+                                    <td><span class="code">qwen-plus</span></td>
+                                    <td>¥0.000001</td>
+                                    <td>¥0.000002</td>
+                                    <td>-</td>
+                                    <td><span class="tag tag-info">PEAK_OFF_PEAK</span></td>
+                                    <td><span class="code">高峰 1.0 / 低谷 0.6</span></td>
+                                    <td><span class="code">23:00-07:00</span></td>
+                                    <td>CNY</td>
+                                    <td><span class="tag tag-success">启用</span></td>
+                                    <td><span class="link">编辑</span> | <span class="link">禁用</span></td>
+                                </tr>
+                            </table>
+
+                            <div class="pagination">
+                                <div class="page-btn">上一页</div>
+                                <div class="page-btn active">1</div>
+                                <div class="page-btn">2</div>
+                                <div class="page-btn">下一页</div>
+                            </div>
+                        </div>
+
+                        <div class="alert-info" style="margin-top:16px;">
+                            💡 <b>峰谷定价说明</b>：低谷时段调用享受折扣价，最终单价 = 基础单价 × 峰谷系数。缓存折扣与峰谷折扣可叠加（相乘）。<br/>
+                            示例：gpt-4o 正常输入价 $2.50/M Tokens，缓存价 $1.25/M Tokens，在 23:00 低谷时段（系数 0.5）且命中缓存时，最终单价 = $1.25 × 0.5 = $0.625/M Tokens。
                         </div>
                     </div>
 
@@ -1470,6 +1568,116 @@ model    = "deepseek-chat"</div>
         </div>
     </div>
 
+    <!-- Add Price Modal -->
+    <div class="modal-mask" id="addPriceModal" onclick="closeModalOutside(event, 'addPriceModal')">
+        <div class="modal" style="width:860px;" onclick="event.stopPropagation()">
+            <div class="modal-title">添加/编辑价格配置</div>
+            <div class="modal-desc">配置大模型 Token 单价，支持固定定价和峰谷定价策略。修改价格只影响新调用，历史账单不会变更。</div>
+
+            <div class="form-grid">
+                <div class="form-item">
+                    <label class="form-label">Provider *</label>
+                    <select class="select" id="priceProvider">
+                        <option value="">请选择</option>
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="qwen">通义千问</option>
+                        <option value="zhipu">智谱 AI</option>
+                        <option value="kimi">Kimi</option>
+                    </select>
+                </div>
+
+                <div class="form-item">
+                    <label class="form-label">模型名称 *</label>
+                    <input class="input" id="priceModel" placeholder="如：deepseek-chat, gpt-4o" />
+                </div>
+
+                <div class="form-item">
+                    <label class="form-label">输入单价 (每 Token) *</label>
+                    <input class="input" id="priceInput" placeholder="如：0.000002" type="number" step="0.000001" />
+                </div>
+
+                <div class="form-item">
+                    <label class="form-label">输出单价 (每 Token) *</label>
+                    <input class="input" id="priceOutput" placeholder="如：0.000008" type="number" step="0.000001" />
+                </div>
+
+                <div class="form-item">
+                    <label class="form-label">缓存读取单价 (每 Token)</label>
+                    <input class="input" id="priceCacheRead" placeholder="如：0.000001（可选）" type="number" step="0.000001" />
+                </div>
+
+                <div class="form-item">
+                    <label class="form-label">币种 *</label>
+                    <select class="select" id="priceCurrency">
+                        <option value="CNY">CNY - 人民币</option>
+                        <option value="USD">USD - 美元</option>
+                    </select>
+                </div>
+
+                <div class="form-item">
+                    <label class="form-label">定价类型 *</label>
+                    <select class="select" id="pricePricingType" onchange="togglePeakOffPeakFields()">
+                        <option value="FLAT">FLAT - 固定定价</option>
+                        <option value="PEAK_OFF_PEAK">PEAK_OFF_PEAK - 峰谷定价</option>
+                    </select>
+                </div>
+
+                <div class="form-item">
+                    <label class="form-label">状态 *</label>
+                    <select class="select" id="priceStatus">
+                        <option value="ENABLED">启用</option>
+                        <option value="DISABLED">禁用</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 峰谷定价字段 -->
+            <div id="peakOffPeakFields" style="display:none; margin-top:16px; padding:16px; background:#f8fafc; border-radius:10px; border:1px solid #e5e7eb;">
+                <div style="font-size:14px; font-weight:600; margin-bottom:12px; color:#374151;">⛰️ 峰谷定价配置</div>
+                
+                <div class="form-grid">
+                    <div class="form-item">
+                        <label class="form-label">高峰时段价格系数</label>
+                        <input class="input" id="pricePeakMultiplier" value="1.0" type="number" step="0.1" min="0" />
+                        <div style="font-size:11px; color:#9ca3af; margin-top:4px;">默认 1.0，可设置 1.2 表示高峰加价</div>
+                    </div>
+
+                    <div class="form-item">
+                        <label class="form-label">低谷时段价格系数 *</label>
+                        <input class="input" id="priceOffPeakMultiplier" value="0.5" type="number" step="0.1" min="0" max="1" />
+                        <div style="font-size:11px; color:#9ca3af; margin-top:4px;">如 0.5 表示 5 折，0.6 表示 6 折</div>
+                    </div>
+
+                    <div class="form-item">
+                        <label class="form-label">低谷开始时间 *</label>
+                        <input class="input" id="priceOffPeakStart" type="time" value="22:00" />
+                    </div>
+
+                    <div class="form-item">
+                        <label class="form-label">低谷结束时间 * (次日)</label>
+                        <input class="input" id="priceOffPeakEnd" type="time" value="08:00" />
+                        <div style="font-size:11px; color:#9ca3af; margin-top:4px;">支持跨天，如 22:00-次日 08:00</div>
+                    </div>
+                </div>
+
+                <div class="alert-info" style="margin-top:12px;">
+                    💡 当前配置：低谷时段 <b id="previewOffPeakTime">22:00-08:00</b>，价格系数 <b id="previewOffPeakMultiplier">0.5</b><br/>
+                    示例：基础价 ¥0.000002/Token，在低谷时段且命中缓存（缓存价 5 折）时，最终单价 = ¥0.000001 × 0.5 = ¥0.0000005/Token
+                </div>
+            </div>
+
+            <div class="alert-warning" style="margin-top:16px;">
+                ⚠️ <b>重要提示</b>：修改价格或峰谷规则后，只影响新的调用请求。历史已产生的用量记录（usage_log）中的费用快照不会变更，确保账单一致性。
+            </div>
+
+            <div style="margin-top:18px; display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn" onclick="closeModal('addPriceModal')">取消</button>
+                <button class="btn btn-primary" onclick="savePriceConfig()">保存配置</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         function login() {
             var role = document.getElementById('loginRole').value;
@@ -1567,6 +1775,68 @@ model    = "deepseek-chat"</div>
                 closeModal(modalId);
             }
         }
+
+        // 峰谷定价字段切换
+        function togglePeakOffPeakFields() {
+            var pricingType = document.getElementById('pricePricingType').value;
+            var peakFields = document.getElementById('peakOffPeakFields');
+            
+            if (pricingType === 'PEAK_OFF_PEAK') {
+                peakFields.style.display = 'block';
+            } else {
+                peakFields.style.display = 'none';
+            }
+        }
+
+        // 更新峰谷预览
+        function updatePeakOffPeakPreview() {
+            var start = document.getElementById('priceOffPeakStart').value;
+            var end = document.getElementById('priceOffPeakEnd').value;
+            var multiplier = document.getElementById('priceOffPeakMultiplier').value;
+            
+            document.getElementById('previewOffPeakTime').textContent = start + '-' + end;
+            document.getElementById('previewOffPeakMultiplier').textContent = multiplier;
+        }
+
+        // 保存价格配置
+        function savePriceConfig() {
+            var provider = document.getElementById('priceProvider').value;
+            var model = document.getElementById('priceModel').value;
+            var inputPrice = document.getElementById('priceInput').value;
+            var outputPrice = document.getElementById('priceOutput').value;
+            var pricingType = document.getElementById('pricePricingType').value;
+            
+            if (!provider || !model || !inputPrice || !outputPrice) {
+                alert('请填写必填字段');
+                return;
+            }
+            
+            // 峰谷定价验证
+            if (pricingType === 'PEAK_OFF_PEAK') {
+                var offPeakMultiplier = document.getElementById('priceOffPeakMultiplier').value;
+                var offPeakStart = document.getElementById('priceOffPeakStart').value;
+                var offPeakEnd = document.getElementById('priceOffPeakEnd').value;
+                
+                if (!offPeakMultiplier || !offPeakStart || !offPeakEnd) {
+                    alert('峰谷定价需要填写完整的峰谷配置');
+                    return;
+                }
+            }
+            
+            alert('价格配置已保存！\nProvider: ' + provider + '\n模型：' + model + '\n定价类型：' + pricingType);
+            closeModal('addPriceModal');
+        }
+
+        // 绑定峰谷字段变更事件
+        document.addEventListener('DOMContentLoaded', function() {
+            ['priceOffPeakStart', 'priceOffPeakEnd', 'priceOffPeakMultiplier'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) {
+                    el.addEventListener('change', updatePeakOffPeakPreview);
+                    el.addEventListener('input', updatePeakOffPeakPreview);
+                }
+            });
+        });
 
         function copyText(text) {
             if (navigator.clipboard && navigator.clipboard.writeText) {

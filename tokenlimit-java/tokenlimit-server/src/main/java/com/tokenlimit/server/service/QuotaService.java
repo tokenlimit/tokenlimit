@@ -309,9 +309,12 @@ public class QuotaService {
                 : estimationTrackerService.adjust(model, Math.max(estPrompt, estimatedPromptTokens));
         long billCompletion = providerUsage ? completionTokens
                 : estimationTrackerService.adjust(model, Math.max(estCompletion, estimatedCompletionTokens));
+        
+        // V5.5 峰谷定价：传入请求时间用于峰谷判断
+        LocalDateTime requestTime = usageLog.getCreateTime() != null ? usageLog.getCreateTime() : LocalDateTime.now();
         PriceCalculatorService.CostResult billing = priceCalculatorService.calculateCost(
                 StringUtils.hasText(provider) ? provider : null, model, billPrompt, billCompletion,
-                providerUsage ? cachedTokens : 0, providerUsage ? cacheWriteTokens : 0);
+                providerUsage ? cachedTokens : 0, providerUsage ? cacheWriteTokens : 0, requestTime);
         usageLog.setCost(billing.costBase());
         usageLog.setCostOriginal(billing.costOriginal());
         usageLog.setCurrency(billing.currency());
@@ -323,6 +326,7 @@ public class QuotaService {
         usageLog.setCacheWriteTokens(providerUsage ? cacheWriteTokens : 0);
         usageLog.setCacheReadPriceSnapshot(billing.cacheReadPricePerToken());
         usageLog.setCacheWritePriceSnapshot(billing.cacheWritePricePerToken());
+        usageLog.setPriceMultiplierSnapshot(billing.priceMultiplier());
         usageLog.setConsumeFrom(StringUtils.hasText(consumeFrom) ? consumeFrom : "TEAM");
         usageLog.setUsageSource(usageSource);
         usageLog.setStatus(usageStatus);
