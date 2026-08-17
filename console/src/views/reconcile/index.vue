@@ -137,15 +137,41 @@
             <el-table-column prop="provider" label="供应商" width="120">
               <template #default="{ row }"><el-tag>{{ row.provider }}</el-tag></template>
             </el-table-column>
-            <el-table-column prop="model" label="模型" min-width="180" />
-            <el-table-column label="输入单价（元/百万）" width="160">
+            <el-table-column prop="model" label="模型" min-width="160" />
+            <el-table-column label="输入单价（元/百万）" width="140">
               <template #default="{ row }">{{ (((row.inputPricePerToken || 0) * 1000000).toFixed(2)) }}</template>
             </el-table-column>
-            <el-table-column label="输出单价（元/百万）" width="160">
+            <el-table-column label="输出单价（元/百万）" width="140">
               <template #default="{ row }">{{ (((row.outputPricePerToken || 0) * 1000000).toFixed(2)) }}</template>
             </el-table-column>
-            <el-table-column prop="currency" label="币种" width="90" />
-            <el-table-column label="状态" width="90">
+            <el-table-column label="缓存读单价（元/百万）" width="140">
+              <template #default="{ row }">{{ row.cacheReadPricePerToken ? (((row.cacheReadPricePerToken * 1000000).toFixed(2))) : '-' }}</template>
+            </el-table-column>
+            <el-table-column label="定价类型" width="110">
+              <template #default="{ row }">
+                <el-tag :type="row.pricingType === 'PEAK_OFF_PEAK' ? 'warning' : 'info'">
+                  {{ row.pricingType === 'PEAK_OFF_PEAK' ? '峰谷定价' : '固定定价' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="峰谷系数" width="110">
+              <template #default="{ row }">
+                <span v-if="row.pricingType === 'PEAK_OFF_PEAK'">
+                  高{{ row.peakMultiplier || 1.0 }}/<span class="text-success">谷{{ row.offPeakMultiplier || 0.5 }}</span>
+                </span>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="低谷时段" width="130">
+              <template #default="{ row }">
+                <span v-if="row.pricingType === 'PEAK_OFF_PEAK'">
+                  {{ row.offPeakStart || '22:00' }}-{{ row.offPeakEnd || '08:00' }}
+                </span>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="currency" label="币种" width="80" />
+            <el-table-column label="状态" width="80">
               <template #default="{ row }">
                 <el-tag :type="row.status === 'ENABLED' ? 'success' : 'info'">{{ row.status === 'ENABLED' ? '启用' : '停用' }}</el-tag>
               </template>
@@ -221,8 +247,8 @@
     </el-dialog>
 
     <!-- 模型价格编辑 -->
-    <el-dialog v-model="priceDialogVisible" :title="priceForm.id ? '编辑价格' : '新增价格'" width="500px">
-      <el-form :model="priceForm" label-width="130px">
+    <el-dialog v-model="priceDialogVisible" :title="priceForm.id ? '编辑价格' : '新增价格'" width="560px">
+      <el-form :model="priceForm" label-width="140px">
         <el-form-item label="供应商" required>
           <el-input v-model="priceForm.provider" placeholder="如：openai" :disabled="!!priceForm.id" />
         </el-form-item>
@@ -245,6 +271,45 @@
           <el-input-number v-model="priceForm.cacheWritePerMillion" :min="0" :precision="4" :step="0.1" style="width: 100%" placeholder="可选" />
           <div class="form-tip">可选：缓存写入 Token 单价（Anthropic 为正常输入价 1.25 倍），留空按正常输入价计费</div>
         </el-form-item>
+        
+        <!-- V5.5 峰谷定价配置 -->
+        <el-form-item label="定价类型">
+          <el-radio-group v-model="priceForm.pricingType">
+            <el-radio label="FLAT">固定定价</el-radio>
+            <el-radio label="PEAK_OFF_PEAK">峰谷定价</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        
+        <!-- 峰谷定价专属字段 -->
+        <template v-if="priceForm.pricingType === 'PEAK_OFF_PEAK'">
+          <el-form-item label="高峰价格系数">
+            <el-input-number v-model="priceForm.peakMultiplier" :min="0.1" :max="9.99" :precision="2" :step="0.1" style="width: 100%" />
+            <div class="form-tip">默认 1.0，表示原价；可设置 1.2 表示高峰加价 20%</div>
+          </el-form-item>
+          <el-form-item label="低谷价格系数">
+            <el-input-number v-model="priceForm.offPeakMultiplier" :min="0.1" :max="0.99" :precision="2" :step="0.1" style="width: 100%" />
+            <div class="form-tip">如 0.5 表示 5 折，0.3 表示 3 折</div>
+          </el-form-item>
+          <el-form-item label="低谷时段">
+            <el-time-picker
+              v-model="priceForm.offPeakStartTime"
+              format="HH:mm"
+              value-format="HH:mm:ss"
+              placeholder="低谷开始时间"
+              style="width: 140px; margin-right: 8px;"
+            />
+            <span>至</span>
+            <el-time-picker
+              v-model="priceForm.offPeakEndTime"
+              format="HH:mm"
+              value-format="HH:mm:ss"
+              placeholder="低谷结束时间"
+              style="width: 140px; margin-left: 8px;"
+            />
+            <div class="form-tip" style="margin-top: 8px;">支持跨天配置，如 22:00 至 次日 08:00</div>
+          </el-form-item>
+        </template>
+        
         <el-form-item label="币种">
           <el-select v-model="priceForm.currency" style="width: 100%">
             <el-option label="CNY（人民币）" value="CNY" />
@@ -257,6 +322,22 @@
             <el-option label="停用" value="DISABLED" />
           </el-select>
         </el-form-item>
+        
+        <el-alert
+          v-if="priceForm.pricingType === 'PEAK_OFF_PEAK'"
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 16px;"
+        >
+          <template #title>
+            <div style="font-size: 13px;">
+              💡 <b>峰谷定价说明</b>：低谷时段调用享受折扣价，最终单价 = 基础单价 × 峰谷系数。<br/>
+              缓存折扣与峰谷折扣可叠加（相乘）。例如：缓存 5 折 + 谷段 5 折 = 原价 2.5 折！<br/>
+              ⚠️ 修改价格或峰谷规则后，只影响新的调用请求，历史账单不会变更。
+            </div>
+          </template>
+        </el-alert>
       </el-form>
       <template #footer>
         <el-button @click="priceDialogVisible = false">取消</el-button>
@@ -567,6 +648,8 @@ const priceForm = reactive<ModelPrice & {
   outputPerMillion?: number
   cacheReadPerMillion?: number
   cacheWritePerMillion?: number
+  offPeakStartTime?: string
+  offPeakEndTime?: string
 }>({})
 
 function openPriceDialog(row?: ModelPrice) {
@@ -576,9 +659,16 @@ function openPriceDialog(row?: ModelPrice) {
         inputPerMillion: Number((row.inputPricePerToken || 0) * 1000000),
         outputPerMillion: Number((row.outputPricePerToken || 0) * 1000000),
         cacheReadPerMillion: row.cacheReadPricePerToken == null ? undefined : Number(row.cacheReadPricePerToken * 1000000),
-        cacheWritePerMillion: row.cacheWritePricePerToken == null ? undefined : Number(row.cacheWritePricePerToken * 1000000)
+        cacheWritePerMillion: row.cacheWritePricePerToken == null ? undefined : Number(row.cacheWritePricePerToken * 1000000),
+        // V5.5 峰谷定价字段
+        pricingType: row.pricingType || 'FLAT',
+        peakMultiplier: row.peakMultiplier || 1.0,
+        offPeakMultiplier: row.offPeakMultiplier || 0.5,
+        offPeakStartTime: row.offPeakStart || '22:00:00',
+        offPeakEndTime: row.offPeakEnd || '08:00:00'
       }
-    : { id: undefined, provider: '', model: '', inputPerMillion: 0, outputPerMillion: 0, currency: 'CNY', status: 'ENABLED' })
+    : { id: undefined, provider: '', model: '', inputPerMillion: 0, outputPerMillion: 0, currency: 'CNY', status: 'ENABLED',
+        pricingType: 'FLAT', peakMultiplier: 1.0, offPeakMultiplier: 0.5, offPeakStartTime: '22:00:00', offPeakEndTime: '08:00:00' })
   priceDialogVisible.value = true
 }
 
@@ -587,6 +677,14 @@ async function handleSavePrice() {
     ElMessage.warning('请填写供应商与模型')
     return
   }
+  // 峰谷定价验证
+  if (priceForm.pricingType === 'PEAK_OFF_PEAK') {
+    if (!priceForm.offPeakStartTime || !priceForm.offPeakEndTime) {
+      ElMessage.warning('峰谷定价需要配置低谷时段')
+      return
+    }
+  }
+  
   // 元/百万 → 每 Token 单价（保留 10 位小数）；缓存单价留空存 null（按正常输入价计费）
   const payload = {
     ...priceForm,
@@ -595,12 +693,18 @@ async function handleSavePrice() {
     cacheReadPricePerToken: priceForm.cacheReadPerMillion == null
       ? null : Number(((priceForm.cacheReadPerMillion || 0) / 1000000).toFixed(10)),
     cacheWritePricePerToken: priceForm.cacheWritePerMillion == null
-      ? null : Number(((priceForm.cacheWritePerMillion || 0) / 1000000).toFixed(10))
+      ? null : Number(((priceForm.cacheWritePerMillion || 0) / 1000000).toFixed(10)),
+    // V5.5 峰谷定价字段映射
+    offPeakStart: priceForm.offPeakStartTime,
+    offPeakEnd: priceForm.offPeakEndTime
   }
   delete payload.inputPerMillion
   delete payload.outputPerMillion
   delete payload.cacheReadPerMillion
   delete payload.cacheWritePerMillion
+  delete payload.offPeakStartTime
+  delete payload.offPeakEndTime
+  
   if (priceForm.id) {
     await updateModelPrice(priceForm.id, payload)
   } else {
