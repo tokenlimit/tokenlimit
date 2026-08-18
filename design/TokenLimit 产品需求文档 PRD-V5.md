@@ -9,7 +9,7 @@
 | 项目 | 内容 |
 |---|---|
 | 产品名称 | TokenLimit |
-| 文档版本 | V5.0 |
+| 文档版本 | V6.0 |
 | 文档状态 | 可开发 |
 | 核心模型 | Team → User → API Key |
 | 第一版目标 | 支持 Cursor / DeepSeek Harness 快速接入，实现 Token 预算控制 |
