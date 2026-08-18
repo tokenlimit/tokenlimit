@@ -871,7 +871,7 @@ model    = "deepseek-chat"</div>
                         <div class="page-header">
                             <div>
                                 <div class="page-title">Team 团队 / 成本中心</div>
-                                <div class="page-desc">Team 是预算池、成本中心和管理边界。TeamAdmin 管理 Team 下 User、API Key、配额和成本。</div>
+                                <div class="page-desc">Team 是预算池、成本中心和管理边界。TeamAdmin 只关注月度总预算分配，不干预 User 细粒度控制。</div>
                             </div>
                             <button class="btn btn-primary">新建 Team</button>
                         </div>
@@ -946,7 +946,7 @@ model    = "deepseek-chat"</div>
                         <div class="page-header">
                             <div>
                                 <div class="page-title">User 用户</div>
-                                <div class="page-desc">User 是登录账号和成本责任人。User 可创建多个 API Key，调用行为通过 API Key 识别并归属到 User / Team。</div>
+                                <div class="page-desc">User 是登录账号和成本责任人。Team Admin 分配月度配额，User 可自主管理 API Key 的日/小时限额。</div>
                             </div>
                             <button class="btn btn-primary">新建 User</button>
                         </div>
@@ -958,8 +958,8 @@ model    = "deepseek-chat"</div>
                                     <th>名称</th>
                                     <th>Team</th>
                                     <th>角色</th>
-                                    <th>quota_mode</th>
-                                    <th>今日已用</th>
+                                    <th>月度配额</th>
+                                    <th>本月已用</th>
                                     <th>状态</th>
                                     <th>操作</th>
                                 </tr>
@@ -968,30 +968,30 @@ model    = "deepseek-chat"</div>
                                     <td>张三</td>
                                     <td><span class="code">team-rd</span></td>
                                     <td><span class="tag tag-default">USER</span></td>
-                                    <td><span class="tag tag-default">PERSONAL_FIRST_THEN_TEAM</span></td>
-                                    <td>121,550</td>
+                                    <td>¥5,000</td>
+                                    <td>¥3,120</td>
                                     <td><span class="tag tag-success">启用</span></td>
-                                    <td><span class="link">配额</span> | <span class="link">API Key</span></td>
+                                    <td><span class="link">配额</span> | <span class="link">风控</span></td>
                                 </tr>
                                 <tr>
                                     <td><span class="code">lisi</span></td>
                                     <td>李四</td>
                                     <td><span class="code">team-rd</span></td>
                                     <td><span class="tag tag-default">USER</span></td>
-                                    <td><span class="tag tag-default">PERSONAL_ONLY</span></td>
-                                    <td>198,230</td>
+                                    <td>¥8,000</td>
+                                    <td>¥7,200</td>
                                     <td><span class="tag tag-warning">接近限额</span></td>
-                                    <td><span class="link">配额</span> | <span class="link">API Key</span></td>
+                                    <td><span class="link">配额</span> | <span class="link">风控</span></td>
                                 </tr>
                                 <tr>
                                     <td><span class="code">bot-ci</span></td>
                                     <td>CI 机器人</td>
                                     <td><span class="code">team-rd</span></td>
                                     <td><span class="tag tag-default">USER</span></td>
-                                    <td><span class="tag tag-default">TEAM_ONLY</span></td>
-                                    <td>88,120</td>
+                                    <td>¥3,000</td>
+                                    <td>¥1,200</td>
                                     <td><span class="tag tag-success">启用</span></td>
-                                    <td><span class="link">配额</span> | <span class="link">API Key</span></td>
+                                    <td><span class="link">配额</span> | <span class="link">风控</span></td>
                                 </tr>
                             </table>
                         </div>
